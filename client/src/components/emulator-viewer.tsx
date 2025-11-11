@@ -1,233 +1,233 @@
-import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { useMutation } from "@tanstack/react-query";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Play, 
-  RotateCw, 
-  Maximize, 
-  X, 
   Smartphone,
-  Loader2,
-  AlertCircle
+  QrCode,
+  Download,
+  CheckCircle2,
+  Info
 } from "lucide-react";
-import type { EmulatorSession } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import type { ApkFile } from "@shared/schema";
+import QRCode from "qrcode";
+import { useEffect, useState } from "react";
 
 interface EmulatorViewerProps {
-  session: EmulatorSession | null | undefined;
+  session: any;
   selectedApk: string | null;
   selectedDevice: string | null;
-  onSessionStart: (session: EmulatorSession) => void;
+  onSessionStart: (session: any) => void;
   onSessionEnd: () => void;
+  apkFile?: ApkFile;
 }
 
 export function EmulatorViewer({
-  session,
   selectedApk,
-  selectedDevice,
-  onSessionStart,
-  onSessionEnd,
+  apkFile,
 }: EmulatorViewerProps) {
   const { toast } = useToast();
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
 
-  const startSessionMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedApk || !selectedDevice) {
-        throw new Error("Please select both an APK file and a device");
-      }
+  useEffect(() => {
+    if (apkFile) {
+      const downloadUrl = `${window.location.origin}/api/apk-files/${apkFile.id}/download`;
       
-      return apiRequest<EmulatorSession>("POST", "/api/session/start", {
-        apkFileId: selectedApk,
-        deviceId: selectedDevice,
-      });
-    },
-    onSuccess: (data) => {
-      onSessionStart(data);
-      toast({
-        title: "Session started",
-        description: "Your APK is now running in the emulator",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to start session",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+      QRCode.toDataURL(downloadUrl, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#ffffff",
+        },
+      })
+        .then(setQrCodeUrl)
+        .catch((err) => {
+          console.error("Error generating QR code:", err);
+          toast({
+            title: "QR Code Error",
+            description: "Failed to generate QR code",
+            variant: "destructive",
+          });
+        });
+    }
+  }, [apkFile, toast]);
 
-  const stopSessionMutation = useMutation({
-    mutationFn: async () => {
-      if (!session) return;
-      return apiRequest("POST", `/api/session/${session.id}/stop`, {});
-    },
-    onSuccess: () => {
-      onSessionEnd();
+  const handleCopyLink = () => {
+    if (apkFile) {
+      const downloadUrl = `${window.location.origin}/api/apk-files/${apkFile.id}/download`;
+      navigator.clipboard.writeText(downloadUrl);
       toast({
-        title: "Session stopped",
-        description: "The emulator session has been terminated",
+        title: "Link copied",
+        description: "Download link copied to clipboard",
       });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to stop session",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
+    }
   };
 
-  // Empty state - no session
-  if (!session || session.status === "idle") {
+  const handleDownload = () => {
+    if (apkFile) {
+      window.location.href = `/api/apk-files/${apkFile.id}/download`;
+    }
+  };
+
+  if (!selectedApk || !apkFile) {
     return (
-      <Card className="h-full flex flex-col items-center justify-center p-8 gap-6" data-testid="card-emulator-empty">
+      <Card className="h-full flex flex-col items-center justify-center p-8 gap-6">
         <Smartphone className="w-24 h-24 text-muted-foreground opacity-50" />
         <div className="text-center space-y-2">
-          <h3 className="text-xl font-medium" data-testid="text-empty-title">
-            No Active Session
-          </h3>
-          <p className="text-sm text-muted-foreground max-w-md" data-testid="text-empty-description">
-            Select an APK file and device from the sidebar, then click "Run APK" to start an emulator session
-          </p>
-        </div>
-        <Button
-          size="lg"
-          onClick={() => startSessionMutation.mutate()}
-          disabled={!selectedApk || !selectedDevice || startSessionMutation.isPending}
-          data-testid="button-start-session"
-        >
-          {startSessionMutation.isPending ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Starting...
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4 mr-2" />
-              Run APK
-            </>
-          )}
-        </Button>
-      </Card>
-    );
-  }
-
-  // Initializing state
-  if (session.status === "initializing") {
-    return (
-      <Card className="h-full flex flex-col items-center justify-center p-8 gap-6" data-testid="card-emulator-loading">
-        <Loader2 className="w-24 h-24 text-primary animate-spin" />
-        <div className="text-center space-y-2">
-          <h3 className="text-xl font-medium" data-testid="text-loading-title">
-            Initializing Emulator
-          </h3>
-          <p className="text-sm text-muted-foreground" data-testid="text-loading-description">
-            Please wait while we prepare your Android device...
+          <h3 className="text-xl font-medium">No APK Selected</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Select an APK file to install it on your Android device
           </p>
         </div>
       </Card>
     );
   }
 
-  // Error state
-  if (session.status === "error") {
-    return (
-      <Card className="h-full flex flex-col items-center justify-center p-8 gap-6" data-testid="card-emulator-error">
-        <AlertCircle className="w-24 h-24 text-destructive" />
-        <div className="text-center space-y-2">
-          <h3 className="text-xl font-medium" data-testid="text-error-title">
-            Session Error
-          </h3>
-          <p className="text-sm text-muted-foreground" data-testid="text-error-description">
-            Something went wrong with the emulator session
-          </p>
-        </div>
-        <Button
-          variant="destructive"
-          onClick={() => stopSessionMutation.mutate()}
-          disabled={stopSessionMutation.isPending}
-          data-testid="button-close-error-session"
-        >
-          <X className="w-4 h-4 mr-2" />
-          Close Session
-        </Button>
-      </Card>
-    );
-  }
-
-  // Running state - show emulator
   return (
-    <div className={`flex flex-col gap-4 ${isFullscreen ? "fixed inset-0 z-50 bg-background p-4" : "h-full"}`}>
-      <Card className="flex-1 flex flex-col overflow-hidden" data-testid="card-emulator-active">
-        {/* Device Frame with Emulator */}
-        <div className="flex-1 flex items-center justify-center p-6 bg-muted/20">
-          <div className="relative max-w-full max-h-full aspect-[9/16] bg-black rounded-3xl shadow-2xl overflow-hidden border-8 border-gray-800">
-            {session.sessionUrl ? (
-              <iframe
-                src={session.sessionUrl}
-                className="w-full h-full"
-                title="Android Emulator"
-                allow="camera; microphone; geolocation"
-                data-testid="iframe-emulator"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-white">
-                <Loader2 className="w-12 h-12 animate-spin" />
-              </div>
-            )}
-          </div>
-        </div>
+    <div className="h-full overflow-auto">
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
+        {/* Info Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Info className="w-5 h-5" />
+              Install on Your Android Device
+            </CardTitle>
+            <CardDescription>
+              Use your phone's built-in features to install {apkFile.originalName}
+            </CardDescription>
+          </CardHeader>
+        </Card>
 
-        {/* Control Bar */}
-        <div className="border-t p-4 bg-card">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={handleFullscreen}
-                data-testid="button-fullscreen"
+        {/* Method 1: QR Code */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5" />
+              Method 1: Scan QR Code
+            </CardTitle>
+            <CardDescription>
+              Easiest way - Use your phone's camera app
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col items-center gap-4">
+              {qrCodeUrl && (
+                <img 
+                  src={qrCodeUrl} 
+                  alt="QR Code for APK download" 
+                  className="border-4 border-border rounded-lg"
+                />
+              )}
+              <div className="text-center space-y-2">
+                <p className="text-sm font-medium">Scan with your phone to download</p>
+                <ol className="text-sm text-muted-foreground space-y-1 text-left">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary" />
+                    Open your phone's camera app
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary" />
+                    Point it at the QR code above
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary" />
+                    Tap the notification to download
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary" />
+                    Open the downloaded APK file to install
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Method 2: Direct Download */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5" />
+              Method 2: Direct Download Link
+            </CardTitle>
+            <CardDescription>
+              Copy the link or download directly
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button 
+                onClick={handleDownload} 
+                className="flex-1"
+                size="lg"
               >
-                <Maximize className="w-4 h-4" />
+                <Download className="w-4 h-4 mr-2" />
+                Download APK
               </Button>
-              <Button
-                size="icon"
+              <Button 
+                onClick={handleCopyLink} 
                 variant="outline"
-                data-testid="button-rotate"
+                className="flex-1"
+                size="lg"
               >
-                <RotateCw className="w-4 h-4" />
+                Copy Link
               </Button>
             </div>
+            <div className="text-sm text-muted-foreground space-y-2">
+              <p className="font-medium">If browsing on your phone:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Click "Download APK" button above</li>
+                <li>Open the downloaded file from your notification bar</li>
+                <li>Enable "Install from Unknown Sources" if prompted</li>
+                <li>Tap "Install" and you're done!</li>
+              </ol>
+            </div>
+          </CardContent>
+        </Card>
 
-            <Button
-              variant="destructive"
-              onClick={() => stopSessionMutation.mutate()}
-              disabled={stopSessionMutation.isPending}
-              data-testid="button-stop-session"
-            >
-              {stopSessionMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Stopping...
-                </>
-              ) : (
-                <>
-                  <X className="w-4 h-4 mr-2" />
-                  Stop Session
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-      </Card>
+        {/* Method 3: Device Features */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Smartphone className="w-5 h-5" />
+              Method 3: Using Device Built-in Features
+            </CardTitle>
+            <CardDescription>
+              Share via Bluetooth, Nearby Share, or AirDrop alternatives
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm text-muted-foreground space-y-2">
+              <p className="font-medium">Alternative sharing methods:</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li><strong>Nearby Share (Android):</strong> Download on this device, then share to your phone</li>
+                <li><strong>Bluetooth:</strong> Transfer the APK file directly via Bluetooth</li>
+                <li><strong>Cloud Storage:</strong> Upload to Google Drive/Dropbox and download on your phone</li>
+                <li><strong>Email:</strong> Email the download link to yourself and open on your phone</li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Important Note */}
+        <Card className="border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-800">
+          <CardContent className="pt-6">
+            <div className="flex gap-3">
+              <Info className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+              <div className="text-sm space-y-1">
+                <p className="font-medium text-orange-900 dark:text-orange-100">
+                  Security Note
+                </p>
+                <p className="text-orange-800 dark:text-orange-200">
+                  Make sure to enable "Install from Unknown Sources" in your Android settings if this is your first time installing an APK outside the Play Store.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

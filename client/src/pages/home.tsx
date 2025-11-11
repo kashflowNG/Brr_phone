@@ -72,6 +72,7 @@ export default function Home() {
                       selectedDevice="default-device"
                       onSessionStart={setEmulatorSession}
                       onSessionEnd={() => setEmulatorSession(null)}
+                      apkFile={selectedApkFile}
                     />
                   </TabsContent>
                 </Tabs>
