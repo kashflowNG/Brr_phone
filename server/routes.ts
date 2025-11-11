@@ -4,8 +4,7 @@ import { storage } from "./storage";
 import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
-import { insertApkFileSchema, insertEmulatorSessionSchema } from "@shared/schema";
-import { EmulatorService } from "./emulator-service.js";
+import { insertApkFileSchema } from "@shared/schema";
 
 // Configure multer for APK uploads
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -31,8 +30,6 @@ const upload = multer({
     cb(null, true);
   },
 });
-
-const emulatorService = new EmulatorService();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // APK File routes
@@ -97,102 +94,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Device routes
-  app.get("/api/devices", async (req, res) => {
+  // APK Download route
+  app.get("/api/apk-files/:id/download", async (req, res) => {
     try {
-      const devices = await storage.getAllDevices();
-      res.json(devices);
-    } catch (error) {
-      console.error("Error fetching devices:", error);
-      res.status(500).json({ error: "Failed to fetch devices" });
-    }
-  });
+      const { id } = req.params;
+      const apkFile = await storage.getApkFile(id);
 
-  // Session routes
-  app.get("/api/session/active", async (req, res) => {
-    try {
-      const session = await storage.getActiveSession();
-      res.json(session);
-    } catch (error) {
-      console.error("Error fetching active session:", error);
-      res.status(500).json({ error: "Failed to fetch active session" });
-    }
-  });
-
-  app.post("/api/session/start", async (req, res) => {
-    try {
-      const sessionData = insertEmulatorSessionSchema.parse(req.body);
-
-      // Check if there's already an active session
-      const activeSession = await storage.getActiveSession();
-      if (activeSession) {
-        return res.status(409).json({
-          error: "An emulator session is already running. Please stop it first.",
-        });
-      }
-
-      // Create session in initializing state
-      const session = await storage.createSession({
-        ...sessionData,
-        status: "initializing",
-      });
-
-      // Start emulator session (async - returns streaming URL)
-      const apkFile = await storage.getApkFile(sessionData.apkFileId);
       if (!apkFile) {
-        await storage.updateSession(session.id, { status: "error" });
         return res.status(404).json({ error: "APK file not found" });
       }
 
-      try {
-        const { sessionUrl, publicKey } = await emulatorService.startSession(
-          session.id,
-          apkFile.path,
-          sessionData.deviceId
-        );
+      // Set headers for file download
+      res.setHeader("Content-Type", "application/vnd.android.package-archive");
+      res.setHeader("Content-Disposition", `attachment; filename="${apkFile.originalName}"`);
+      res.setHeader("Content-Length", apkFile.size);
 
-        // Update session with streaming URL, publicKey and set status to running
-        const updatedSession = await storage.updateSession(session.id, {
-          sessionUrl,
-          publicKey,
-          status: "running",
-          startedAt: new Date(),
-        });
-
-        res.status(201).json(updatedSession);
-      } catch (error) {
-        await storage.updateSession(session.id, { status: "error" });
-        throw error;
-      }
+      // Stream the file
+      const fileStream = (await import("fs")).createReadStream(apkFile.path);
+      fileStream.pipe(res);
     } catch (error) {
-      console.error("Error starting session:", error);
-      res.status(500).json({ error: "Failed to start emulator session" });
-    }
-  });
-
-  app.post("/api/session/:id/stop", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const session = await storage.getSession(id);
-
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
-
-      // Stop emulator session
-      if (session.publicKey) {
-        await emulatorService.stopSession(session.publicKey);
-      }
-
-      const updatedSession = await storage.updateSession(id, {
-        status: "stopped",
-        stoppedAt: new Date(),
-      });
-
-      res.json(updatedSession);
-    } catch (error) {
-      console.error("Error stopping session:", error);
-      res.status(500).json({ error: "Failed to stop session" });
+      console.error("Error downloading APK:", error);
+      res.status(500).json({ error: "Failed to download APK file" });
     }
   });
 
