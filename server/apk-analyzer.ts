@@ -10,18 +10,55 @@ const execAsync = promisify(exec);
 export interface ApiEndpoint {
   url: string;
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "UNKNOWN";
-  payload?: string[];
-  script: string;
+  context: string;
+  dbOperation?: string;
+  hasPayload?: boolean;
+  payloadIndicators?: string[];
+  confidence: "high" | "medium" | "low";
+  uiElement?: string;
+  buttonText?: string;
+  eventType?: string;
+}
+
+export interface UiComponent {
+  type: string;
+  id?: string;
+  text?: string;
+  action?: string;
+  listeners: string[];
+  file: string;
 }
 
 export interface ApkAnalysisResult {
   apiEndpoints: ApiEndpoint[];
+  uiComponents: UiComponent[];
   totalEndpoints: number;
+  totalUiElements: number;
+  databaseOperations: {
+    INSERT: number;
+    UPDATE: number;
+    DELETE: number;
+    READ: number;
+    UPSERT: number;
+    BULK: number;
+  };
+  summary: {
+    totalUrls: number;
+    uniqueDomains: number;
+    authEndpoints: number;
+    uploadEndpoints: number;
+    adminEndpoints: number;
+    buttons: number;
+    textFields: number;
+    clickHandlers: number;
+  };
 }
 
 export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
   const apiEndpoints: ApiEndpoint[] = [];
+  const uiComponents: UiComponent[] = [];
   const seenUrls = new Set<string>();
+  const seenUiElements = new Set<string>();
   
   try {
     const zip = new AdmZip(apkPath);
@@ -63,6 +100,46 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         /\/(?:api|rest|service|endpoint|backend|server)\/[a-zA-Z0-9_\-\/\.]+/gi,
       ];
 
+      // UI Component patterns
+      const uiPatterns = {
+        buttons: [
+          /<Button[^>]*>/gi,
+          /<button[^>]*>/gi,
+          /android:id="@\+id\/([^"]*btn[^"]*)"/gi,
+          /android:id="@\+id\/([^"]*button[^"]*)"/gi,
+          /findViewById.*Button/gi,
+          /setOnClickListener/gi,
+          /onClick\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
+          /\.click\s*\(/gi,
+          /addEventListener\s*\(\s*["']click["']/gi,
+        ],
+        textFields: [
+          /<input[^>]*>/gi,
+          /<TextField[^>]*>/gi,
+          /android:id="@\+id\/([^"]*edit[^"]*)"/gi,
+          /android:id="@\+id\/([^"]*input[^"]*)"/gi,
+          /EditText/gi,
+          /TextInputLayout/gi,
+          /type\s*=\s*["']text["']/gi,
+          /type\s*=\s*["']password["']/gi,
+        ],
+        images: [
+          /<img[^>]*>/gi,
+          /<Image[^>]*>/gi,
+          /android:id="@\+id\/([^"]*image[^"]*)"/gi,
+          /ImageView/gi,
+        ],
+        eventListeners: [
+          /setOnClickListener/gi,
+          /addEventListener/gi,
+          /onClick/gi,
+          /onTouch/gi,
+          /onLongClick/gi,
+          /addTextChangedListener/gi,
+          /setOnFocusChangeListener/gi,
+        ]
+      };
+
       // Method detection patterns
       const methodPatterns = {
         GET: /\.get\s*\(|HttpGet|@GET|method\s*[:=]\s*["']GET["']|Request\.Method\.GET|RequestMethod\.GET|GET\s+request|getMethod\(\).*GET/gi,
@@ -72,8 +149,29 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         DELETE: /\.delete\s*\(|HttpDelete|@DELETE|method\s*[:=]\s*["']DELETE["']|Request\.Method\.DELETE|RequestMethod\.DELETE|DELETE\s+request|setRequestMethod\("DELETE"\)/gi,
       };
 
-      // Payload extraction patterns
-      const payloadPattern = /["']?([\w_]+)["']?\s*[:=]\s*(?:["']([^"']+)["']|(\w+)|(\d+))/gi;
+      // Database operation patterns
+      const dbOperationPatterns = {
+        INSERT: /\/(?:create|insert|add|new|register|signup|submit|save|store|append|write|put)(?:\/|$|\?|&)|action=(?:create|insert|add|new|register|signup)|op=(?:insert|add|create|new)|method.*(?:create|insert|add)|CREATE\s+|INSERT\s+INTO|\.save\(|\.insert\(|\.create\(/gi,
+        UPDATE: /\/(?:update|edit|modify|change|patch|save|put|alter|set|revise)(?:\/|$|\?|&)|action=(?:update|edit|modify|change|patch)|op=(?:update|edit|modify|patch)|method.*(?:update|edit|modify)|UPDATE\s+SET|\.update\(|\.modify\(|\.edit\(/gi,
+        DELETE: /\/(?:delete|remove|destroy|drop|clear|purge|erase|trash)(?:\/|$|\?|&)|action=(?:delete|remove|destroy|drop)|op=(?:delete|remove|destroy)|method.*(?:delete|remove)|DELETE\s+FROM|WHERE.*DELETE|\.delete\(|\.remove\(|\.destroy\(/gi,
+        UPSERT: /\/(?:upsert|merge|replace|sync|saveOrUpdate)(?:\/|$|\?|&)|action=(?:upsert|merge|sync)|op=(?:upsert|merge)|REPLACE\s+INTO|INSERT.*ON\s+DUPLICATE|\.upsert\(|\.merge\(/gi,
+        BULK: /\/(?:bulk|batch|multi|mass|many)(?:\/|$|\?|&)|action=(?:bulk|batch|multi)|op=(?:bulk|batch)|bulkInsert|bulkUpdate|bulkDelete|\.bulkCreate\(|\.bulkUpdate\(/gi,
+        READ: /\/(?:get|list|fetch|query|search|find|read|view|show|retrieve|select|load|all)(?:\/|$|\?|&)|action=(?:get|list|fetch|query|search|find)|op=(?:get|fetch|select|query)|SELECT\s+.*FROM|\.get\(|\.find\(|\.query\(|\.search\(/gi,
+      };
+
+      // Payload indicators
+      const payloadIndicators = {
+        hasId: /["']?(?:id|_id|user_id|post_id|item_id|object_id|userId|postId|itemId|entityId|recordId|pk|primaryKey)["']?\s*[:=]/i,
+        hasUserData: /["']?(?:user|email|username|password|name|profile|phone|address|firstName|lastName|fullName|displayName|nickname)["']?\s*[:=]/i,
+        hasTimestamp: /["']?(?:timestamp|created_at|updated_at|date|time|datetime|createdAt|updatedAt|modifiedAt|dateCreated|dateModified)["']?\s*[:=]/i,
+        hasFileData: /["']?(?:file|image|upload|attachment|media|blob|binary|photo|avatar|picture|document|pdf)["']?\s*[:=]/i,
+        hasStatus: /["']?(?:status|state|active|enabled|published|isActive|isPublished|isEnabled|isDeleted|deleted|archived)["']?\s*[:=]/i,
+        hasSqlKeywords: /\b(?:INSERT|UPDATE|DELETE|SELECT|WHERE|SET|VALUES|FROM|INTO|JOIN|ORDER|GROUP|HAVING|LIMIT)\b/gi,
+        hasJson: /Content-Type.*application\/json|JSON\.stringify|JSON\.parse|application\/json|@Body|RequestBody/i,
+        hasFormData: /FormData|multipart\/form-data|x-www-form-urlencoded|@Field|@FieldMap|@Part|@PartMap/i,
+        hasAuth: /authorization|bearer|token|jwt|session|cookie|auth|api[-_]?key|access[-_]?token/i,
+        hasPassword: /password|passwd|pwd|secret|credentials/i,
+      };
 
       function looksLikeBackend(str: string): boolean {
         if (str.startsWith('android.') || 
@@ -101,29 +199,91 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         );
       }
 
-      function determineMethod(context: string): ApiEndpoint["method"] {
+      function determineMethod(context: string, url: string): ApiEndpoint["method"] {
+        const contextLower = context.toLowerCase();
+        const urlLower = url.toLowerCase();
+        
         for (const [method, pattern] of Object.entries(methodPatterns)) {
           if (pattern.test(context)) {
             return method as ApiEndpoint["method"];
           }
         }
+
+        if (/\/(?:delete|remove|destroy|drop|clear)/.test(urlLower)) return "DELETE";
+        if (/\/(?:update|edit|modify|patch|change)/.test(urlLower)) return "PUT";
+        if (/\/(?:create|insert|add|new|register|signup|submit|save|store)/.test(urlLower)) return "POST";
+        if (/\/(?:get|fetch|list|show|view|retrieve|read)/.test(urlLower)) return "GET";
+        
         if (/(?:FormData|RequestBody|@Body|@Field|JSON\.stringify)/.test(context)) return "POST";
+        
         return "UNKNOWN";
       }
 
-      function extractPayloadParams(context: string): string[] {
-        const params = new Set<string>();
-        let match;
-        payloadPattern.lastIndex = 0;
+      function getDatabaseOperation(method: string, url: string, context: string): string | undefined {
+        const urlLower = url.toLowerCase();
+        const contextLower = context.toLowerCase();
+        const combined = urlLower + " " + contextLower;
         
-        while ((match = payloadPattern.exec(context)) !== null) {
-          const paramName = match[1];
-          if (paramName && paramName.length > 1 && paramName.length < 50) {
-            params.add(paramName);
+        for (const [op, pattern] of Object.entries(dbOperationPatterns)) {
+          if (pattern.test(combined)) {
+            return op;
+          }
+        }
+
+        if (method === "POST") return "INSERT";
+        if (method === "PUT" || method === "PATCH") return "UPDATE";
+        if (method === "DELETE") return "DELETE";
+        if (method === "GET") return "READ";
+        
+        return undefined;
+      }
+
+      function analyzePayloadContext(context: string): { hasPayload: boolean; indicators: string[] } {
+        const indicators: string[] = [];
+        
+        for (const [key, pattern] of Object.entries(payloadIndicators)) {
+          if (pattern.test(context)) {
+            indicators.push(key.replace('has', ''));
           }
         }
         
-        return Array.from(params).slice(0, 10);
+        return {
+          hasPayload: indicators.length > 0,
+          indicators
+        };
+      }
+
+      function extractUiInfo(context: string): { uiElement?: string; buttonText?: string; eventType?: string } {
+        let uiElement: string | undefined;
+        let buttonText: string | undefined;
+        let eventType: string | undefined;
+
+        // Check for button
+        if (/button|btn|click/i.test(context)) {
+          uiElement = "Button";
+          
+          // Extract button text
+          const textMatch = context.match(/android:text="([^"]+)"|text[:=]["']([^"']+)["']|>([^<]{1,50})<\/[Bb]utton>/);
+          if (textMatch) {
+            buttonText = textMatch[1] || textMatch[2] || textMatch[3];
+          }
+        }
+
+        // Check for input field
+        if (/input|edit|textfield/i.test(context)) {
+          uiElement = "Input Field";
+        }
+
+        // Determine event type
+        if (/onClick|setOnClickListener|click/i.test(context)) {
+          eventType = "Click";
+        } else if (/onSubmit|submit/i.test(context)) {
+          eventType = "Submit";
+        } else if (/onChange|textChanged/i.test(context)) {
+          eventType = "Change";
+        }
+
+        return { uiElement, buttonText, eventType };
       }
 
       // Process all files recursively
@@ -157,7 +317,46 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                 const content = await fs.readFile(fullPath, "utf8");
                 const relPath = path.relative(tempDir, fullPath);
                 
-                // Extract API endpoints
+                // Extract UI Components
+                for (const [uiType, patterns] of Object.entries(uiPatterns)) {
+                  for (const pattern of patterns) {
+                    let match;
+                    pattern.lastIndex = 0;
+                    
+                    while ((match = pattern.exec(content)) !== null) {
+                      const contextStart = Math.max(0, match.index - 500);
+                      const contextEnd = Math.min(content.length, match.index + 500);
+                      const uiContext = content.substring(contextStart, contextEnd);
+                      
+                      // Extract ID and text
+                      const idMatch = uiContext.match(/android:id="@\+id\/([^"]+)"|id[:=]["']([^"']+)["']/);
+                      const textMatch = uiContext.match(/android:text="([^"]+)"|text[:=]["']([^"']+)["']|>([^<]{1,100})</);
+                      const actionMatch = uiContext.match(/onClick[:=]["']([^"']+)["']|setOnClickListener/);
+                      
+                      const listeners: string[] = [];
+                      if (/onClick|setOnClickListener/.test(uiContext)) listeners.push("Click");
+                      if (/onTouch/.test(uiContext)) listeners.push("Touch");
+                      if (/onLongClick/.test(uiContext)) listeners.push("Long Click");
+                      if (/addTextChangedListener/.test(uiContext)) listeners.push("Text Changed");
+                      
+                      const uiKey = `${uiType}-${idMatch?.[1] || idMatch?.[2] || 'unknown'}-${relPath}`;
+                      if (!seenUiElements.has(uiKey) && listeners.length > 0) {
+                        seenUiElements.add(uiKey);
+                        
+                        uiComponents.push({
+                          type: uiType,
+                          id: idMatch?.[1] || idMatch?.[2],
+                          text: textMatch?.[1] || textMatch?.[2] || textMatch?.[3],
+                          action: actionMatch?.[1],
+                          listeners,
+                          file: relPath
+                        });
+                      }
+                    }
+                  }
+                }
+                
+                // Process URLs
                 for (const pattern of urlPatterns) {
                   let match;
                   pattern.lastIndex = 0;
@@ -192,18 +391,33 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                     }
                     seenUrls.add(urlKey);
 
-                    const contextStart = Math.max(0, match.index - 1000);
-                    const contextEnd = Math.min(content.length, match.index + 1000);
+                    const contextStart = Math.max(0, match.index - 2000);
+                    const contextEnd = Math.min(content.length, match.index + 2000);
                     const surroundingContext = content.substring(contextStart, contextEnd);
 
-                    const method = determineMethod(surroundingContext);
-                    const payloadParams = extractPayloadParams(surroundingContext);
+                    const method = determineMethod(surroundingContext, url);
+                    const dbOperation = getDatabaseOperation(method, url, surroundingContext);
+                    const payloadAnalysis = analyzePayloadContext(surroundingContext);
+                    const uiInfo = extractUiInfo(surroundingContext);
+
+                    let confidence: ApiEndpoint["confidence"] = "medium";
+                    if ((method !== "UNKNOWN" && dbOperation) || payloadAnalysis.indicators.length >= 3) {
+                      confidence = "high";
+                    } else if (method === "UNKNOWN" && !dbOperation && payloadAnalysis.indicators.length === 0) {
+                      confidence = "low";
+                    }
 
                     apiEndpoints.push({
                       url,
                       method,
-                      payload: payloadParams.length > 0 ? payloadParams : undefined,
-                      script: relPath
+                      context: relPath,
+                      dbOperation,
+                      hasPayload: payloadAnalysis.hasPayload,
+                      payloadIndicators: payloadAnalysis.indicators,
+                      confidence,
+                      uiElement: uiInfo.uiElement,
+                      buttonText: uiInfo.buttonText,
+                      eventType: uiInfo.eventType
                     });
                   }
                 }
@@ -225,17 +439,65 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
       }
     }
 
-    // Sort endpoints by method then URL
+    // Sort endpoints
     apiEndpoints.sort((a, b) => {
+      const confidenceOrder = { high: 0, medium: 1, low: 2 };
+      if (confidenceOrder[a.confidence] !== confidenceOrder[b.confidence]) {
+        return confidenceOrder[a.confidence] - confidenceOrder[b.confidence];
+      }
       if (a.method !== b.method) {
         return a.method.localeCompare(b.method);
       }
       return a.url.localeCompare(b.url);
     });
 
+    // Calculate statistics
+    const databaseOperations = {
+      INSERT: apiEndpoints.filter(e => e.dbOperation === "INSERT").length,
+      UPDATE: apiEndpoints.filter(e => e.dbOperation === "UPDATE").length,
+      DELETE: apiEndpoints.filter(e => e.dbOperation === "DELETE").length,
+      READ: apiEndpoints.filter(e => e.dbOperation === "READ").length,
+      UPSERT: apiEndpoints.filter(e => e.dbOperation === "UPSERT").length,
+      BULK: apiEndpoints.filter(e => e.dbOperation === "BULK").length,
+    };
+
+    const uniqueDomains = new Set(
+      apiEndpoints
+        .map(e => {
+          try {
+            const url = new URL(e.url.startsWith('http') ? e.url : `http://${e.url}`);
+            return url.hostname;
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean)
+    ).size;
+
+    const summary = {
+      totalUrls: apiEndpoints.length,
+      uniqueDomains,
+      authEndpoints: apiEndpoints.filter(e => 
+        /auth|login|signup|register|token|jwt|session|password|credentials/i.test(e.url)
+      ).length,
+      uploadEndpoints: apiEndpoints.filter(e => 
+        /upload|file|media|image|attachment|photo|document/i.test(e.url)
+      ).length,
+      adminEndpoints: apiEndpoints.filter(e => 
+        /admin|manage|dashboard|panel|console|settings/i.test(e.url)
+      ).length,
+      buttons: uiComponents.filter(u => u.type === 'buttons').length,
+      textFields: uiComponents.filter(u => u.type === 'textFields').length,
+      clickHandlers: uiComponents.filter(u => u.listeners.includes('Click')).length,
+    };
+
     return {
       apiEndpoints,
-      totalEndpoints: apiEndpoints.length
+      uiComponents,
+      totalEndpoints: apiEndpoints.length,
+      totalUiElements: uiComponents.length,
+      databaseOperations,
+      summary
     };
 
   } catch (error) {
