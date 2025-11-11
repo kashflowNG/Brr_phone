@@ -87,12 +87,17 @@ export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete, onRu
           key={apk.id}
           className={`
             p-4 cursor-pointer transition-all duration-200
-            hover:shadow-md hover:scale-[1.02]
-            ${selectedApk === apk.id ? "ring-2 ring-primary bg-primary/5" : ""}
+            hover:shadow-lg hover:scale-[1.02] hover:bg-accent/50
+            border-2
+            ${selectedApk === apk.id 
+              ? "ring-2 ring-primary bg-primary/10 border-primary" 
+              : "border-border hover:border-primary/50"
+            }
           `}
           onClick={(e) => {
             e.stopPropagation();
             onSelectApk(apk.id);
+            console.log('Selected APK:', apk.id);
           }}
           data-testid={`card-apk-${apk.id}`}
         >
@@ -102,7 +107,7 @@ export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete, onRu
             </div>
 
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate" data-testid={`text-apk-name-${apk.id}`}>
+              <p className="text-sm font-semibold truncate" data-testid={`text-apk-name-${apk.id}`}>
                 {apk.originalName}
               </p>
               <div className="flex items-center gap-2 mt-1">
@@ -114,6 +119,11 @@ export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete, onRu
                   {formatDate(apk.uploadedAt)}
                 </p>
               </div>
+              {selectedApk === apk.id && (
+                <p className="text-xs text-primary font-medium mt-1">
+                  ✓ Selected
+                </p>
+              )}
             </div>
 
             <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
