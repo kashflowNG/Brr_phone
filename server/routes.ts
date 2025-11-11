@@ -118,6 +118,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Emulator session routes
+  app.post("/api/session/start", async (req, res) => {
+    try {
+      const { apkFileId, deviceId } = req.body;
+
+      if (!apkFileId) {
+        return res.status(400).json({ error: "APK file ID is required" });
+      }
+
+      const apkFile = await storage.getApkFile(apkFileId);
+      if (!apkFile) {
+        return res.status(404).json({ error: "APK file not found" });
+      }
+
+      // Create a mock session - replace with actual emulator service integration
+      const session = {
+        id: `session-${Date.now()}`,
+        apkFileId,
+        deviceId: deviceId || "default-device",
+        status: "running" as const,
+        sessionUrl: `https://appetize.io/embed/YOUR_PUBLIC_KEY?device=pixel7&osVersion=13.0`,
+        createdAt: new Date().toISOString(),
+      };
+
+      res.status(201).json(session);
+    } catch (error) {
+      console.error("Error starting session:", error);
+      res.status(500).json({ error: "Failed to start emulator session" });
+    }
+  });
+
+  app.post("/api/session/:id/stop", async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Mock session stop - replace with actual cleanup logic
+      res.json({ 
+        success: true,
+        message: "Session stopped successfully" 
+      });
+    } catch (error) {
+      console.error("Error stopping session:", error);
+      res.status(500).json({ error: "Failed to stop emulator session" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
