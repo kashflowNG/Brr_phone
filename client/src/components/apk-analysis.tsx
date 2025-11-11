@@ -151,9 +151,11 @@ export function ApkAnalysis({ apkFile }: ApkAnalysisProps) {
                                 {endpoint.dbOperation}
                               </Badge>
                             )}
-                            <Badge className={`shrink-0 ${getConfidenceBadge(endpoint.confidence)}`}>
-                              {endpoint.confidence.toUpperCase()}
-                            </Badge>
+                            {endpoint.confidence && (
+                              <Badge className={`shrink-0 ${getConfidenceBadge(endpoint.confidence)}`}>
+                                {endpoint.confidence.toUpperCase()}
+                              </Badge>
+                            )}
                           </div>
                           
                           <code className="text-xs break-all block bg-muted px-2 py-1 rounded">

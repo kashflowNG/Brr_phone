@@ -241,7 +241,7 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                 dbOperation,
                 hasPayload: payloadAnalysis.hasPayload,
                 payloadIndicators: payloadAnalysis.indicators,
-                confidence
+                confidence: confidence || "low" // Ensure confidence always has a value
               });
             }
           }
