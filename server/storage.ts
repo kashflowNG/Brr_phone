@@ -107,6 +107,9 @@ export class MemStorage implements IStorage {
     const session: EmulatorSession = {
       ...insertSession,
       id,
+      status: insertSession.status ?? "idle",
+      sessionUrl: insertSession.sessionUrl ?? null,
+      publicKey: insertSession.publicKey ?? null,
       createdAt: new Date(),
       startedAt: null,
       stoppedAt: null,

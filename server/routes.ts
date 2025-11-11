@@ -5,7 +5,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
 import { insertApkFileSchema, insertEmulatorSessionSchema } from "@shared/schema";
-import { EmulatorService } from "./emulator-service";
+import { EmulatorService } from "./emulator-service.js";
 
 // Configure multer for APK uploads
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -153,14 +153,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Start emulator session asynchronously
       emulatorService.startSession(session.id, apkFile.path, deviceId)
-        .then(async (sessionUrl) => {
+        .then(async (sessionUrl: string) => {
           await storage.updateSession(session.id, {
             status: "running",
             sessionUrl,
             startedAt: new Date(),
           });
         })
-        .catch(async (error) => {
+        .catch(async (error: unknown) => {
           console.error("Error starting emulator session:", error);
           await storage.updateSession(session.id, {
             status: "error",

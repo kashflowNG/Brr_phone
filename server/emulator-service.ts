@@ -63,12 +63,11 @@ export class EmulatorService {
     // });
     
     // For demo, just remove from our tracking
-    for (const [sessionId, key] of this.sessions.entries()) {
+    this.sessions.forEach((key, sessionId) => {
       if (key === publicKey) {
         this.sessions.delete(sessionId);
-        break;
       }
-    }
+    });
   }
 
   private delay(ms: number): Promise<void> {

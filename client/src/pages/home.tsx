@@ -5,7 +5,7 @@ import { EmulatorViewer } from "@/components/emulator-viewer";
 import { FileManager } from "@/components/file-manager";
 import { Header } from "@/components/header";
 import { useQuery } from "@tanstack/react-query";
-import type { ApkFile, DeviceModel, EmulatorSession } from "@shared/schema";
+import type { ApkFile, DeviceModel, EmulatorSession, SessionStatus } from "@shared/schema";
 
 export default function Home() {
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
@@ -27,9 +27,11 @@ export default function Home() {
     queryKey: ["/api/session/active"],
   });
 
+  const sessionStatus: SessionStatus = (session?.status as SessionStatus) ?? "idle";
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Header sessionStatus={session?.status || "idle"} />
+      <Header sessionStatus={sessionStatus} />
       
       <main className="flex-1 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 h-full">
