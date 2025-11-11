@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ApkUploader } from "@/components/apk-uploader";
 import { ApkDetails } from "@/components/apk-details";
+import { ApkAnalysis } from "@/components/apk-analysis";
 import { FileManager } from "@/components/file-manager";
 import { Header } from "@/components/header";
 import { useQuery } from "@tanstack/react-query";
@@ -56,10 +57,15 @@ export default function Home() {
                 <Tabs defaultValue="details" className="flex flex-col h-full">
                   <TabsList className="mb-4">
                     <TabsTrigger value="details">APK Details</TabsTrigger>
+                    <TabsTrigger value="analysis">API Analysis</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="details" className="flex-1 mt-0">
                     <ApkDetails apkFile={selectedApkFile} />
+                  </TabsContent>
+
+                  <TabsContent value="analysis" className="flex-1 mt-0">
+                    <ApkAnalysis apkFile={selectedApkFile} />
                   </TabsContent>
                 </Tabs>
               ) : (

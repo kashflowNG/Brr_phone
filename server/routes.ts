@@ -5,6 +5,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
 import { insertApkFileSchema } from "@shared/schema";
+import { analyzeApk } from "./apk-analyzer";
 
 // Configure multer for APK uploads
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -115,6 +116,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error downloading APK:", error);
       res.status(500).json({ error: "Failed to download APK file" });
+    }
+  });
+
+  // APK Analysis route
+  app.get("/api/apk-files/:id/analyze", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const apkFile = await storage.getApkFile(id);
+
+      if (!apkFile) {
+        return res.status(404).json({ error: "APK file not found" });
+      }
+
+      const analysis = await analyzeApk(apkFile.path);
+      res.json(analysis);
+    } catch (error) {
+      console.error("Error analyzing APK:", error);
+      res.status(500).json({ error: "Failed to analyze APK file" });
     }
   });
 
