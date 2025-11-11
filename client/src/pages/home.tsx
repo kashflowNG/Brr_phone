@@ -1,18 +1,16 @@
 import { useState } from "react";
 import { ApkUploader } from "@/components/apk-uploader";
 import { ApkDetails } from "@/components/apk-details";
-import { EmulatorViewer } from "@/components/emulator-viewer";
 import { FileManager } from "@/components/file-manager";
 import { Header } from "@/components/header";
 import { useQuery } from "@tanstack/react-query";
-import type { ApkFile, EmulatorSession } from "@shared/schema";
+import type { ApkFile } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Package } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Home() {
   const [selectedApk, setSelectedApk] = useState<string | null>(null);
-  const [emulatorSession, setEmulatorSession] = useState<EmulatorSession | null>(null);
 
   // Fetch APK files
   const { data: apkFiles = [], refetch: refetchApks } = useQuery<ApkFile[]>({
@@ -24,7 +22,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
-      
+
       <main className="flex-1 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 h-full">
           <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-6 h-full">
@@ -58,22 +56,10 @@ export default function Home() {
                 <Tabs defaultValue="details" className="flex flex-col h-full">
                   <TabsList className="mb-4">
                     <TabsTrigger value="details">APK Details</TabsTrigger>
-                    <TabsTrigger value="emulator">Run in Browser</TabsTrigger>
                   </TabsList>
-                  
+
                   <TabsContent value="details" className="flex-1 mt-0">
                     <ApkDetails apkFile={selectedApkFile} />
-                  </TabsContent>
-                  
-                  <TabsContent value="emulator" className="flex-1 mt-0">
-                    <EmulatorViewer
-                      session={emulatorSession}
-                      selectedApk={selectedApk}
-                      selectedDevice="default-device"
-                      onSessionStart={setEmulatorSession}
-                      onSessionEnd={() => setEmulatorSession(null)}
-                      apkFile={selectedApkFile}
-                    />
                   </TabsContent>
                 </Tabs>
               ) : (
@@ -84,7 +70,7 @@ export default function Home() {
                       No APK Selected
                     </h3>
                     <p className="text-sm text-muted-foreground max-w-md" data-testid="text-empty-description">
-                      Upload an APK file or select one from your library to view installation instructions, download links, and QR codes
+                      Upload an APK file or select one from your library to download it to your Android device
                     </p>
                   </div>
                 </Card>
