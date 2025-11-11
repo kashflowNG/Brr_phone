@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Trash2, FileArchive, Folder } from "lucide-react";
+import { Trash2, FileArchive, Folder } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import type { ApkFile } from "@shared/schema";
@@ -22,10 +22,9 @@ interface FileManagerProps {
   selectedApk: string | null;
   onSelectApk: (apkId: string) => void;
   onDelete: () => void;
-  onRun: (apkId: string) => void;
 }
 
-export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete, onRun }: FileManagerProps) {
+export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete }: FileManagerProps) {
   const { toast } = useToast();
 
   const deleteMutation = useMutation({
@@ -127,19 +126,6 @@ export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete, onRu
             </div>
 
             <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRun(apk.id);
-                }}
-                data-testid={`button-run-${apk.id}`}
-              >
-                <Play className="w-4 h-4" />
-              </Button>
-              
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button

@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { ApkUploader } from "@/components/apk-uploader";
-import { DeviceSelector } from "@/components/device-selector";
-import { EmulatorViewer } from "@/components/emulator-viewer";
+import { ApkDetails } from "@/components/apk-details";
 import { FileManager } from "@/components/file-manager";
 import { Header } from "@/components/header";
 import { useQuery } from "@tanstack/react-query";
-import type { ApkFile, DeviceModel, EmulatorSession, SessionStatus } from "@shared/schema";
+import type { ApkFile } from "@shared/schema";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Package } from "lucide-react";
 
 export default function Home() {
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const [activeSession, setActiveSession] = useState<EmulatorSession | null>(null);
   const [selectedApk, setSelectedApk] = useState<string | null>(null);
 
   // Fetch APK files
@@ -17,21 +16,11 @@ export default function Home() {
     queryKey: ["/api/apk-files"],
   });
 
-  // Fetch available devices
-  const { data: devices = [] } = useQuery<DeviceModel[]>({
-    queryKey: ["/api/devices"],
-  });
-
-  // Fetch active session
-  const { data: session, refetch: refetchSession } = useQuery<EmulatorSession | null>({
-    queryKey: ["/api/session/active"],
-  });
-
-  const sessionStatus: SessionStatus = (session?.status as SessionStatus) ?? "idle";
+  const selectedApkFile = apkFiles.find((apk) => apk.id === selectedApk);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Header sessionStatus={sessionStatus} />
+      <Header />
       
       <main className="flex-1 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 py-6 h-full">
@@ -46,18 +35,6 @@ export default function Home() {
                 <ApkUploader onUploadComplete={refetchApks} />
               </section>
 
-              {/* Device Selection */}
-              <section>
-                <h2 className="text-xl font-medium mb-4" data-testid="text-device-title">
-                  Select Device
-                </h2>
-                <DeviceSelector
-                  devices={devices}
-                  selectedDevice={selectedDevice}
-                  onSelectDevice={setSelectedDevice}
-                />
-              </section>
-
               {/* File Manager */}
               <section>
                 <h2 className="text-xl font-medium mb-4" data-testid="text-files-title">
@@ -68,29 +45,27 @@ export default function Home() {
                   selectedApk={selectedApk}
                   onSelectApk={setSelectedApk}
                   onDelete={refetchApks}
-                  onRun={(apkId) => {
-                    setSelectedApk(apkId);
-                    setActiveSession(null);
-                  }}
                 />
               </section>
             </div>
 
-            {/* Main Content - Emulator Viewer */}
+            {/* Main Content - APK Details */}
             <div className="flex flex-col h-full">
-              <EmulatorViewer
-                session={session}
-                selectedApk={selectedApk}
-                selectedDevice={selectedDevice}
-                onSessionStart={(newSession) => {
-                  setActiveSession(newSession);
-                  refetchSession();
-                }}
-                onSessionEnd={() => {
-                  setActiveSession(null);
-                  refetchSession();
-                }}
-              />
+              {selectedApkFile ? (
+                <ApkDetails apkFile={selectedApkFile} />
+              ) : (
+                <Card className="h-full flex flex-col items-center justify-center p-8 gap-6" data-testid="card-empty-state">
+                  <Package className="w-24 h-24 text-muted-foreground opacity-50" />
+                  <div className="text-center space-y-2">
+                    <h3 className="text-xl font-medium" data-testid="text-empty-title">
+                      No APK Selected
+                    </h3>
+                    <p className="text-sm text-muted-foreground max-w-md" data-testid="text-empty-description">
+                      Upload an APK file or select one from your library to view installation instructions, download links, and QR codes
+                    </p>
+                  </div>
+                </Card>
+              )}
             </div>
           </div>
         </div>
