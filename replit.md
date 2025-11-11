@@ -1,8 +1,8 @@
-# Android Emulator Platform
+# APK Manager
 
 ## Overview
 
-A web-based Android emulator platform that allows users to upload APK files and run them in cloud-based emulator sessions directly in the browser. The application provides a streamlined interface for managing APK files, selecting device configurations, and viewing emulator sessions through embedded streaming URLs.
+A web-based APK distribution and management tool that allows users to upload APK files, store them persistently, and distribute them via download links, QR codes, and ADB installation instructions. The application provides a streamlined interface for managing APK files with easy distribution workflows for Android devices and emulators.
 
 ## User Preferences
 
@@ -32,10 +32,9 @@ Preferred communication style: Simple, everyday language.
 
 **Key UI Components**
 - APK Uploader: Drag-and-drop file upload zone with file validation (APK only, 200MB limit)
-- Device Selector: Radio group interface for selecting Android device models
-- Emulator Viewer: Iframe-based display for emulator session streaming
-- File Manager: List view for uploaded APK files with delete/run actions
-- Header: Application header with session status badge
+- APK Details: Comprehensive view with download, QR code, and installation instructions
+- File Manager: List view for uploaded APK files with selection and delete actions
+- Header: Application header with branding
 
 **Design System**
 - Two-column layout: 320px fixed sidebar, fluid main content area
@@ -59,21 +58,11 @@ Preferred communication style: Simple, everyday language.
 - JSON request/response bodies
 - Session-based architecture (no authentication implemented)
 
-**Core Services**
-- EmulatorService: Mock implementation for cloud emulator integration
-  - Designed to integrate with services like Appetize.io or NativeBridge
-  - Simulates 2-second API delay for demo purposes
-  - Returns mock session URLs for development
-  - Placeholder for real APK upload and streaming session creation
-
 **API Endpoints**
 - `GET /api/apk-files` - List all uploaded APK files
 - `POST /api/apk-files/upload` - Upload APK file (multipart/form-data)
 - `DELETE /api/apk-files/:id` - Delete APK file
-- `GET /api/devices` - List available device models
-- `GET /api/session/active` - Get current active emulator session
-- `POST /api/session/start` - Start new emulator session
-- `POST /api/session/stop` - Stop current emulator session
+- `GET /api/apk-files/:id/download` - Download APK file
 
 **Error Handling**
 - Custom error middleware with JSON responses
@@ -95,32 +84,15 @@ Preferred communication style: Simple, everyday language.
 - Auto-generated UUID primary keys
 - Stores filename, original name, file size, upload timestamp, and file path
 - Zod validation schemas generated from Drizzle schema
-
-*Emulator Sessions Table*
-- Tracks session lifecycle: idle, initializing, running, stopped, error
-- Links to APK file and device configuration
-- Stores session URL and public key for cloud service integration
-- Timestamps for creation, start, and stop events
-
-*Device Models*
-- In-memory data structure (not persisted in database)
-- Defines available Android device configurations (Pixel 6 Pro, Galaxy S21, etc.)
-- Includes device specifications: Android version, screen size, resolution, availability status
+- Persistent storage in PostgreSQL database
 
 **Current Implementation**
-- MemStorage class provides in-memory fallback implementation
-- Maps used for APK files and sessions storage
-- Designed to be replaced with actual Drizzle database queries
+- DatabaseStorage class with full PostgreSQL persistence
+- Drizzle ORM for type-safe database queries
 - CRUD operations defined through IStorage interface
+- Automatic query ordering by upload date
 
 ### External Dependencies
-
-**Cloud Emulator Services**
-- Prepared for integration with Appetize.io or NativeBridge APIs
-- Requires API key configuration via environment variables
-- APK upload to cloud service endpoint
-- Session streaming URL retrieval
-- Currently mocked with demo implementation
 
 **Database**
 - Neon Database serverless PostgreSQL (via @neondatabase/serverless)
