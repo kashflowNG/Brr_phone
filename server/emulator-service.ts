@@ -67,27 +67,34 @@ export class EmulatorService {
    */
   private async uploadApk(apkPath: string): Promise<string> {
     const fileBuffer = await fs.promises.readFile(apkPath);
-    const blob = new Blob([fileBuffer], { type: 'application/vnd.android.package-archive' });
     
     const formData = new FormData();
+    const blob = new Blob([fileBuffer], { type: 'application/vnd.android.package-archive' });
     formData.append('file', blob, 'app.apk');
     formData.append('platform', 'android');
 
-    const response = await fetch(`${this.baseUrl}/apps`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.apiToken}`,
-      },
-      body: formData,
-    });
+    try {
+      const response = await fetch(`${this.baseUrl}/apps`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiToken}`,
+        },
+        body: formData,
+      });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Appetize.io upload failed: ${error}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Appetize.io API error:', errorText);
+        throw new Error(`Appetize.io API error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ APK uploaded successfully:', data.publicKey);
+      return data.publicKey;
+    } catch (error: any) {
+      console.error('❌ Upload error details:', error.message);
+      throw new Error(`Failed to upload APK to Appetize.io: ${error.message}`);
     }
-
-    const data = await response.json();
-    return data.publicKey;
   }
 
   /**
