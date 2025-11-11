@@ -1,5 +1,4 @@
 
-import FormData from 'form-data';
 import fs from 'fs';
 
 /**
@@ -24,6 +23,8 @@ export class EmulatorService {
     if (!this.apiToken) {
       console.warn('⚠️  APPETIZE_API_TOKEN not found in environment variables');
       console.warn('⚠️  Add your Appetize.io API token to Secrets to enable real emulator sessions');
+    } else {
+      console.log('✅ Appetize.io API token loaded successfully');
     }
   }
 
@@ -64,8 +65,11 @@ export class EmulatorService {
    * @returns Public key for the uploaded app
    */
   private async uploadApk(apkPath: string): Promise<string> {
+    const fileBuffer = await fs.promises.readFile(apkPath);
+    const blob = new Blob([fileBuffer], { type: 'application/vnd.android.package-archive' });
+    
     const formData = new FormData();
-    formData.append('file', fs.createReadStream(apkPath));
+    formData.append('file', blob, 'app.apk');
     formData.append('platform', 'android');
 
     const response = await fetch(`${this.baseUrl}/apps`, {
@@ -73,7 +77,7 @@ export class EmulatorService {
       headers: {
         'Authorization': `Bearer ${this.apiToken}`,
       },
-      body: formData as any,
+      body: formData,
     });
 
     if (!response.ok) {
