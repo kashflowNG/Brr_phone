@@ -33,12 +33,13 @@ export class EmulatorService {
    * @param sessionId - Internal session ID
    * @param apkPath - Path to the APK file
    * @param deviceId - Device model ID
-   * @returns Session URL for embedding
+   * @returns Session data with URL and publicKey
    */
-  async startSession(sessionId: string, apkPath: string, deviceId: string): Promise<string> {
+  async startSession(sessionId: string, apkPath: string, deviceId: string): Promise<{ sessionUrl: string; publicKey: string }> {
     if (!this.apiToken) {
       // Fallback to demo mode if no API token
-      return this.startDemoSession(sessionId);
+      const demoUrl = await this.startDemoSession(sessionId);
+      return { sessionUrl: demoUrl, publicKey: `demo-${sessionId.substring(0, 8)}` };
     }
 
     try {
@@ -52,7 +53,7 @@ export class EmulatorService {
       this.sessions.set(sessionId, publicKey);
       
       console.log(`✅ Emulator session started: ${publicKey}`);
-      return sessionUrl;
+      return { sessionUrl, publicKey };
     } catch (error) {
       console.error('❌ Error starting emulator session:', error);
       throw new Error('Failed to start emulator session. Please check your Appetize.io API token.');

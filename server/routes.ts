@@ -121,56 +121,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/session/start", async (req, res) => {
     try {
-      const { apkFileId, deviceId } = req.body;
+      const sessionData = insertEmulatorSessionSchema.parse(req.body);
 
-      if (!apkFileId || !deviceId) {
-        return res.status(400).json({ error: "Missing apkFileId or deviceId" });
+      // Check if there's already an active session
+      const activeSession = await storage.getActiveSession();
+      if (activeSession) {
+        return res.status(409).json({
+          error: "An emulator session is already running. Please stop it first.",
+        });
       }
 
-      // Check if APK file exists
-      const apkFile = await storage.getApkFile(apkFileId);
+      // Create session in initializing state
+      const session = await storage.createSession({
+        ...sessionData,
+        status: "initializing",
+      });
+
+      // Start emulator session (async - returns streaming URL)
+      const apkFile = await storage.getApkFile(sessionData.apkFileId);
       if (!apkFile) {
+        await storage.updateSession(session.id, { status: "error" });
         return res.status(404).json({ error: "APK file not found" });
       }
 
-      // Check for existing active session
-      const existingSession = await storage.getActiveSession();
-      if (existingSession) {
-        return res.status(409).json({ error: "An active session already exists" });
-      }
+      try {
+        const { sessionUrl, publicKey } = await emulatorService.startSession(
+          session.id,
+          apkFile.path,
+          sessionData.deviceId
+        );
 
-      // Create session with initializing status
-      const sessionData = {
-        apkFileId,
-        deviceId,
-        status: "initializing" as const,
-        sessionUrl: null,
-        publicKey: null,
-      };
-
-      const validatedData = insertEmulatorSessionSchema.parse(sessionData);
-      const session = await storage.createSession(validatedData);
-
-      // Start emulator session asynchronously
-      emulatorService.startSession(session.id, apkFile.path, deviceId)
-        .then(async (sessionUrl: string) => {
-          await storage.updateSession(session.id, {
-            status: "running",
-            sessionUrl,
-            startedAt: new Date(),
-          });
-        })
-        .catch(async (error: unknown) => {
-          console.error("Error starting emulator session:", error);
-          await storage.updateSession(session.id, {
-            status: "error",
-          });
+        // Update session with streaming URL, publicKey and set status to running
+        const updatedSession = await storage.updateSession(session.id, {
+          sessionUrl,
+          publicKey,
+          status: "running",
+          startedAt: new Date(),
         });
 
-      res.status(201).json(session);
+        res.status(201).json(updatedSession);
+      } catch (error) {
+        await storage.updateSession(session.id, { status: "error" });
+        throw error;
+      }
     } catch (error) {
-      console.error("Error creating session:", error);
-      res.status(500).json({ error: "Failed to create session" });
+      console.error("Error starting session:", error);
+      res.status(500).json({ error: "Failed to start emulator session" });
     }
   });
 
