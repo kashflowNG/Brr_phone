@@ -15,11 +15,25 @@ export interface ApiEndpoint {
   hasPayload?: boolean;
   payloadIndicators?: string[];
   confidence: "high" | "medium" | "low";
+  uiElement?: string;
+  buttonText?: string;
+  eventType?: string;
+}
+
+export interface UiComponent {
+  type: string;
+  id?: string;
+  text?: string;
+  action?: string;
+  listeners: string[];
+  file: string;
 }
 
 export interface ApkAnalysisResult {
   apiEndpoints: ApiEndpoint[];
+  uiComponents: UiComponent[];
   totalEndpoints: number;
+  totalUiElements: number;
   databaseOperations: {
     INSERT: number;
     UPDATE: number;
@@ -34,33 +48,34 @@ export interface ApkAnalysisResult {
     authEndpoints: number;
     uploadEndpoints: number;
     adminEndpoints: number;
+    buttons: number;
+    textFields: number;
+    clickHandlers: number;
   };
 }
 
 export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
   const apiEndpoints: ApiEndpoint[] = [];
+  const uiComponents: UiComponent[] = [];
   const seenUrls = new Set<string>();
+  const seenUiElements = new Set<string>();
   
   try {
     const zip = new AdmZip(apkPath);
     const zipEntries = zip.getEntries();
     
-    // Extract to temporary directory for better processing
     const tempDir = path.join(path.dirname(apkPath), `temp_${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
     
     try {
       zip.extractAllTo(tempDir, true);
       
-      // COMPREHENSIVE URL patterns - matches everything
+      // COMPREHENSIVE URL patterns
       const urlPatterns = [
-        // Standard URLs
         /https?:\/\/[^\s"'\`<>)}\]\n]+/gi,
-        // API paths with various delimiters
         /"(\/[a-zA-Z0-9_\-\/\.]+)"/gi,
         /'(\/[a-zA-Z0-9_\-\/\.]+)'/gi,
         /`(\/[a-zA-Z0-9_\-\/\.]+)`/gi,
-        // Endpoints with parameters
         /endpoint\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
         /url\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
         /path\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
@@ -68,33 +83,64 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         /route\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
         /uri\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
         /link\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
-        // Retrofit/OkHttp/Volley patterns
         /@(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/gi,
         /@(?:Url|Path|Query|Field|FieldMap|Part|PartMap|Body|Header|Headers)\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/gi,
-        // JavaScript/TypeScript fetch/axios patterns
         /fetch\s*\(\s*["'`]([^"'`\n]+)["'`]/gi,
         /axios\.\w+\s*\(\s*["'`]([^"'`\n]+)["'`]/gi,
         /\$\.(?:get|post|put|delete|ajax)\s*\(\s*["'`]([^"'`\n]+)["'`]/gi,
-        // URL construction patterns
         /new\s+URL\s*\(\s*["'`]([^"'`\n]+)["'`]/gi,
         /URL\s*\(\s*["'`]([^"'`\n]+)["'`]/gi,
-        // Query parameters and operations
         /\?(?:op|action|method|cmd|operation)=[a-zA-Z0-9_\-]+/gi,
         /&(?:op|action|method|cmd|operation)=[a-zA-Z0-9_\-]+/gi,
-        // Base URLs and endpoints
         /(?:BASE_URL|API_URL|ENDPOINT|API_ENDPOINT|ROOT_URL|SERVER_URL)\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
-        // String concatenation patterns
         /["'`]([^"'`]*\/api\/[^"'`]*)["'`]/gi,
         /["'`]([^"'`]*\/v\d+\/[^"'`]*)["'`]/gi,
-        // WebSocket and Socket.IO
         /(?:ws|wss):\/\/[^\s"'\`<>)}\]\n]+/gi,
-        // GraphQL
         /\/graphql[^\s"'\`<>)}\]\n]*/gi,
-        // Common API patterns
         /\/(?:api|rest|service|endpoint|backend|server)\/[a-zA-Z0-9_\-\/\.]+/gi,
       ];
 
-      // EXTENSIVE method detection patterns
+      // UI Component patterns
+      const uiPatterns = {
+        buttons: [
+          /<Button[^>]*>/gi,
+          /<button[^>]*>/gi,
+          /android:id="@\+id\/([^"]*btn[^"]*)"/gi,
+          /android:id="@\+id\/([^"]*button[^"]*)"/gi,
+          /findViewById.*Button/gi,
+          /setOnClickListener/gi,
+          /onClick\s*[:=]\s*["'`]([^"'`\n]+)["'`]/gi,
+          /\.click\s*\(/gi,
+          /addEventListener\s*\(\s*["']click["']/gi,
+        ],
+        textFields: [
+          /<input[^>]*>/gi,
+          /<TextField[^>]*>/gi,
+          /android:id="@\+id\/([^"]*edit[^"]*)"/gi,
+          /android:id="@\+id\/([^"]*input[^"]*)"/gi,
+          /EditText/gi,
+          /TextInputLayout/gi,
+          /type\s*=\s*["']text["']/gi,
+          /type\s*=\s*["']password["']/gi,
+        ],
+        images: [
+          /<img[^>]*>/gi,
+          /<Image[^>]*>/gi,
+          /android:id="@\+id\/([^"]*image[^"]*)"/gi,
+          /ImageView/gi,
+        ],
+        eventListeners: [
+          /setOnClickListener/gi,
+          /addEventListener/gi,
+          /onClick/gi,
+          /onTouch/gi,
+          /onLongClick/gi,
+          /addTextChangedListener/gi,
+          /setOnFocusChangeListener/gi,
+        ]
+      };
+
+      // Method detection patterns
       const methodPatterns = {
         GET: /\.get\s*\(|HttpGet|@GET|method\s*[:=]\s*["']GET["']|Request\.Method\.GET|RequestMethod\.GET|GET\s+request|getMethod\(\).*GET/gi,
         POST: /\.post\s*\(|HttpPost|@POST|method\s*[:=]\s*["']POST["']|Request\.Method\.POST|RequestMethod\.POST|POST\s+request|FormBody|MultipartBody|RequestBody|ContentType\.APPLICATION_JSON|application\/json|x-www-form-urlencoded|setRequestMethod\("POST"\)/gi,
@@ -103,7 +149,7 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         DELETE: /\.delete\s*\(|HttpDelete|@DELETE|method\s*[:=]\s*["']DELETE["']|Request\.Method\.DELETE|RequestMethod\.DELETE|DELETE\s+request|setRequestMethod\("DELETE"\)/gi,
       };
 
-      // COMPREHENSIVE database operation patterns
+      // Database operation patterns
       const dbOperationPatterns = {
         INSERT: /\/(?:create|insert|add|new|register|signup|submit|save|store|append|write|put)(?:\/|$|\?|&)|action=(?:create|insert|add|new|register|signup)|op=(?:insert|add|create|new)|method.*(?:create|insert|add)|CREATE\s+|INSERT\s+INTO|\.save\(|\.insert\(|\.create\(/gi,
         UPDATE: /\/(?:update|edit|modify|change|patch|save|put|alter|set|revise)(?:\/|$|\?|&)|action=(?:update|edit|modify|change|patch)|op=(?:update|edit|modify|patch)|method.*(?:update|edit|modify)|UPDATE\s+SET|\.update\(|\.modify\(|\.edit\(/gi,
@@ -113,7 +159,7 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         READ: /\/(?:get|list|fetch|query|search|find|read|view|show|retrieve|select|load|all)(?:\/|$|\?|&)|action=(?:get|list|fetch|query|search|find)|op=(?:get|fetch|select|query)|SELECT\s+.*FROM|\.get\(|\.find\(|\.query\(|\.search\(/gi,
       };
 
-      // Enhanced payload indicators
+      // Payload indicators
       const payloadIndicators = {
         hasId: /["']?(?:id|_id|user_id|post_id|item_id|object_id|userId|postId|itemId|entityId|recordId|pk|primaryKey)["']?\s*[:=]/i,
         hasUserData: /["']?(?:user|email|username|password|name|profile|phone|address|firstName|lastName|fullName|displayName|nickname)["']?\s*[:=]/i,
@@ -127,9 +173,7 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         hasPassword: /password|passwd|pwd|secret|credentials/i,
       };
 
-      // ENHANCED backend detection
       function looksLikeBackend(str: string): boolean {
-        // Skip obvious non-API strings
         if (str.startsWith('android.') || 
             str.startsWith('java.') || 
             str.startsWith('com.android.') ||
@@ -141,69 +185,51 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         }
 
         return (
-          // Query parameters
           /\?(?:op|action|method|cmd|operation)=/.test(str) ||
-          // API paths
           /\/(?:api|rest|v\d+|service|endpoint|backend|server)\//.test(str) ||
-          // Backend file extensions
           /\.(?:php|asp|aspx|jsp|cgi)(?:\?|$)/.test(str) ||
-          // CGI and admin paths
           /\/(?:cgi-bin|admin|upload|login|auth|logout)\//.test(str) ||
-          // Data formats
           /\.(?:json|xml)(?:\?|$)/.test(str) ||
-          // Modern API patterns
           /\/(?:graphql|webhook|socket|ws)/.test(str) ||
-          // CRUD operations in URL
           /\/(?:create|insert|update|delete|remove|edit|modify|save|add|new|get|fetch|list|query|search|find)(?:\/|$|\?)/.test(str) ||
-          // Resource patterns
           /\/(?:users|posts|comments|orders|products|customers|items|accounts|profiles|data|records|entries)(?:\/\d+|\/[a-z0-9-]+)?(?:\/|$|\?)/.test(str) ||
-          // Database/storage indicators
           /\/(?:database|db|storage|query)\//.test(str) ||
-          // Action parameters
           /[?&]action=/.test(str) ||
-          // Has path and starts with /
           (str.startsWith('/') && str.length > 3 && /\/[a-z]/.test(str))
         );
       }
 
-      // IMPROVED method determination with deeper context analysis
       function determineMethod(context: string, url: string): ApiEndpoint["method"] {
         const contextLower = context.toLowerCase();
         const urlLower = url.toLowerCase();
         
-        // Check explicit method patterns in context
         for (const [method, pattern] of Object.entries(methodPatterns)) {
           if (pattern.test(context)) {
             return method as ApiEndpoint["method"];
           }
         }
 
-        // Heuristics based on URL patterns
         if (/\/(?:delete|remove|destroy|drop|clear)/.test(urlLower)) return "DELETE";
         if (/\/(?:update|edit|modify|patch|change)/.test(urlLower)) return "PUT";
         if (/\/(?:create|insert|add|new|register|signup|submit|save|store)/.test(urlLower)) return "POST";
         if (/\/(?:get|fetch|list|show|view|retrieve|read)/.test(urlLower)) return "GET";
         
-        // Check for payload indicators suggesting POST
         if (/(?:FormData|RequestBody|@Body|@Field|JSON\.stringify)/.test(context)) return "POST";
         
         return "UNKNOWN";
       }
 
-      // Database operation determination
       function getDatabaseOperation(method: string, url: string, context: string): string | undefined {
         const urlLower = url.toLowerCase();
         const contextLower = context.toLowerCase();
         const combined = urlLower + " " + contextLower;
         
-        // Check explicit patterns
         for (const [op, pattern] of Object.entries(dbOperationPatterns)) {
           if (pattern.test(combined)) {
             return op;
           }
         }
 
-        // Method-based fallback
         if (method === "POST") return "INSERT";
         if (method === "PUT" || method === "PATCH") return "UPDATE";
         if (method === "DELETE") return "DELETE";
@@ -212,7 +238,6 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         return undefined;
       }
 
-      // Payload analysis
       function analyzePayloadContext(context: string): { hasPayload: boolean; indicators: string[] } {
         const indicators: string[] = [];
         
@@ -228,6 +253,39 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         };
       }
 
+      function extractUiInfo(context: string): { uiElement?: string; buttonText?: string; eventType?: string } {
+        let uiElement: string | undefined;
+        let buttonText: string | undefined;
+        let eventType: string | undefined;
+
+        // Check for button
+        if (/button|btn|click/i.test(context)) {
+          uiElement = "Button";
+          
+          // Extract button text
+          const textMatch = context.match(/android:text="([^"]+)"|text[:=]["']([^"']+)["']|>([^<]{1,50})<\/[Bb]utton>/);
+          if (textMatch) {
+            buttonText = textMatch[1] || textMatch[2] || textMatch[3];
+          }
+        }
+
+        // Check for input field
+        if (/input|edit|textfield/i.test(context)) {
+          uiElement = "Input Field";
+        }
+
+        // Determine event type
+        if (/onClick|setOnClickListener|click/i.test(context)) {
+          eventType = "Click";
+        } else if (/onSubmit|submit/i.test(context)) {
+          eventType = "Submit";
+        } else if (/onChange|textChanged/i.test(context)) {
+          eventType = "Change";
+        }
+
+        return { uiElement, buttonText, eventType };
+      }
+
       // Process all files recursively
       async function processDirectory(dir: string): Promise<void> {
         const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -238,7 +296,6 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
           if (entry.isDirectory()) {
             await processDirectory(fullPath);
           } else {
-            // Process ALL text-based files
             if (
               entry.name.endsWith(".smali") ||
               entry.name.endsWith(".dex") ||
@@ -258,8 +315,48 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
             ) {
               try {
                 const content = await fs.readFile(fullPath, "utf8");
+                const relPath = path.relative(tempDir, fullPath);
                 
-                // Process each URL pattern
+                // Extract UI Components
+                for (const [uiType, patterns] of Object.entries(uiPatterns)) {
+                  for (const pattern of patterns) {
+                    let match;
+                    pattern.lastIndex = 0;
+                    
+                    while ((match = pattern.exec(content)) !== null) {
+                      const contextStart = Math.max(0, match.index - 500);
+                      const contextEnd = Math.min(content.length, match.index + 500);
+                      const uiContext = content.substring(contextStart, contextEnd);
+                      
+                      // Extract ID and text
+                      const idMatch = uiContext.match(/android:id="@\+id\/([^"]+)"|id[:=]["']([^"']+)["']/);
+                      const textMatch = uiContext.match(/android:text="([^"]+)"|text[:=]["']([^"']+)["']|>([^<]{1,100})</);
+                      const actionMatch = uiContext.match(/onClick[:=]["']([^"']+)["']|setOnClickListener/);
+                      
+                      const listeners: string[] = [];
+                      if (/onClick|setOnClickListener/.test(uiContext)) listeners.push("Click");
+                      if (/onTouch/.test(uiContext)) listeners.push("Touch");
+                      if (/onLongClick/.test(uiContext)) listeners.push("Long Click");
+                      if (/addTextChangedListener/.test(uiContext)) listeners.push("Text Changed");
+                      
+                      const uiKey = `${uiType}-${idMatch?.[1] || idMatch?.[2] || 'unknown'}-${relPath}`;
+                      if (!seenUiElements.has(uiKey) && listeners.length > 0) {
+                        seenUiElements.add(uiKey);
+                        
+                        uiComponents.push({
+                          type: uiType,
+                          id: idMatch?.[1] || idMatch?.[2],
+                          text: textMatch?.[1] || textMatch?.[2] || textMatch?.[3],
+                          action: actionMatch?.[1],
+                          listeners,
+                          file: relPath
+                        });
+                      }
+                    }
+                  }
+                }
+                
+                // Process URLs
                 for (const pattern of urlPatterns) {
                   let match;
                   pattern.lastIndex = 0;
@@ -267,7 +364,6 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                   while ((match = pattern.exec(content)) !== null) {
                     let url = (match[1] || match[0]).trim();
                     
-                    // Clean up URL
                     url = url.replace(/['"` \n\r\t]/g, "");
                     url = url.replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => 
                       String.fromCharCode(parseInt(code, 16))
@@ -275,7 +371,6 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                     url = url.replace(/[,;)}\]>]+$/, "");
                     url = url.replace(/^[<({[]+/, "");
                     
-                    // Skip invalid URLs
                     if (!url || 
                         url.startsWith('data:') || 
                         url.startsWith('javascript:') || 
@@ -286,33 +381,25 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                       continue;
                     }
 
-                    // Only process backend-looking URLs
                     if (!looksLikeBackend(url)) {
                       continue;
                     }
 
-                    // Deduplicate
                     const urlKey = url.toLowerCase();
                     if (seenUrls.has(urlKey)) {
                       continue;
                     }
                     seenUrls.add(urlKey);
 
-                    // Get larger context window (2000 chars)
-                    const contextStart = Math.max(0, match.index - 1500);
-                    const contextEnd = Math.min(content.length, match.index + 1500);
+                    const contextStart = Math.max(0, match.index - 2000);
+                    const contextEnd = Math.min(content.length, match.index + 2000);
                     const surroundingContext = content.substring(contextStart, contextEnd);
 
-                    // Determine method
                     const method = determineMethod(surroundingContext, url);
-
-                    // Determine database operation
                     const dbOperation = getDatabaseOperation(method, url, surroundingContext);
-
-                    // Analyze payload
                     const payloadAnalysis = analyzePayloadContext(surroundingContext);
+                    const uiInfo = extractUiInfo(surroundingContext);
 
-                    // Determine confidence level
                     let confidence: ApiEndpoint["confidence"] = "medium";
                     if ((method !== "UNKNOWN" && dbOperation) || payloadAnalysis.indicators.length >= 3) {
                       confidence = "high";
@@ -323,16 +410,18 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                     apiEndpoints.push({
                       url,
                       method,
-                      context: path.relative(tempDir, fullPath),
+                      context: relPath,
                       dbOperation,
                       hasPayload: payloadAnalysis.hasPayload,
                       payloadIndicators: payloadAnalysis.indicators,
-                      confidence
+                      confidence,
+                      uiElement: uiInfo.uiElement,
+                      buttonText: uiInfo.buttonText,
+                      eventType: uiInfo.eventType
                     });
                   }
                 }
               } catch (err) {
-                // Skip binary or unreadable files
                 continue;
               }
             }
@@ -340,11 +429,9 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         }
       }
 
-      // Process the extracted APK
       await processDirectory(tempDir);
 
     } finally {
-      // Cleanup temp directory
       try {
         await fs.rm(tempDir, { recursive: true, force: true });
       } catch (err) {
@@ -352,7 +439,7 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
       }
     }
 
-    // Sort by confidence, then method, then URL
+    // Sort endpoints
     apiEndpoints.sort((a, b) => {
       const confidenceOrder = { high: 0, medium: 1, low: 2 };
       if (confidenceOrder[a.confidence] !== confidenceOrder[b.confidence]) {
@@ -399,11 +486,16 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
       adminEndpoints: apiEndpoints.filter(e => 
         /admin|manage|dashboard|panel|console|settings/i.test(e.url)
       ).length,
+      buttons: uiComponents.filter(u => u.type === 'buttons').length,
+      textFields: uiComponents.filter(u => u.type === 'textFields').length,
+      clickHandlers: uiComponents.filter(u => u.listeners.includes('Click')).length,
     };
 
     return {
       apiEndpoints,
+      uiComponents,
       totalEndpoints: apiEndpoints.length,
+      totalUiElements: uiComponents.length,
       databaseOperations,
       summary
     };
