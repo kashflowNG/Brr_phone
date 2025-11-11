@@ -87,10 +87,13 @@ export function FileManager({ apkFiles, selectedApk, onSelectApk, onDelete, onRu
           key={apk.id}
           className={`
             p-4 cursor-pointer transition-all duration-200
-            hover-elevate
-            ${selectedApk === apk.id ? "ring-2 ring-primary" : ""}
+            hover:shadow-md hover:scale-[1.02]
+            ${selectedApk === apk.id ? "ring-2 ring-primary bg-primary/5" : ""}
           `}
-          onClick={() => onSelectApk(apk.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectApk(apk.id);
+          }}
           data-testid={`card-apk-${apk.id}`}
         >
           <div className="flex items-start gap-3">
