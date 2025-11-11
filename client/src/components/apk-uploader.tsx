@@ -83,21 +83,22 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
           min-h-48 p-8 border-2 border-dashed rounded-lg
           flex flex-col items-center justify-center gap-4
           cursor-pointer transition-all duration-200
-          hover-elevate
-          ${isDragActive ? "border-primary bg-primary/5 scale-105" : "border-border"}
+          hover:shadow-lg hover:scale-[1.02] hover:border-primary
+          ${isDragActive ? "border-primary bg-primary/10 scale-105" : "border-border"}
+          ${uploadMutation.isPending ? "opacity-50 pointer-events-none" : ""}
         `}
         data-testid="dropzone-apk-upload"
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps()} data-testid="input-apk-file" />
         
         <CloudUpload className={`w-12 h-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
         
         <div className="text-center">
-          <p className="text-base font-medium mb-1" data-testid="text-upload-primary">
-            {isDragActive ? "Drop APK file here" : "Drag APK file here or click to browse"}
+          <p className="text-base font-semibold mb-1" data-testid="text-upload-primary">
+            {isDragActive ? "Drop APK file here" : "Click to select APK file"}
           </p>
           <p className="text-sm text-muted-foreground" data-testid="text-upload-secondary">
-            Supports .apk files up to 200MB
+            Or drag and drop • Supports .apk files up to 200MB
           </p>
         </div>
       </div>
