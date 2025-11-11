@@ -112,8 +112,11 @@ export class EmulatorService {
       autoplay: 'true',
       orientation: 'portrait',
       deviceColor: 'black',
+      debug: 'true',
+      enableDebugger: 'true',
       params: JSON.stringify({
         audio: true,
+        network: true, // Enable network logging
       }),
     });
 
