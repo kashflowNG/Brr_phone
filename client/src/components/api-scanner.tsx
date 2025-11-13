@@ -216,6 +216,42 @@ export function ApiScanner() {
             </Card>
           )}
 
+          <Card className="p-4">
+            <h3 className="font-semibold mb-3">Endpoint Discovery Sources</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">HTML:</span>
+                <Badge variant="outline">
+                  {scanResults.endpoints.filter(e => e.source === 'html').length}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Inline Scripts:</span>
+                <Badge variant="outline">
+                  {scanResults.endpoints.filter(e => e.source === 'inline-script').length}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">External JS:</span>
+                <Badge variant="outline">
+                  {scanResults.endpoints.filter(e => e.source && e.source.startsWith('http')).length}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Forms:</span>
+                <Badge variant="outline">
+                  {scanResults.endpoints.filter(e => e.source === 'form').length}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">API Docs:</span>
+                <Badge variant="outline">
+                  {scanResults.endpoints.filter(e => e.source === 'api-documentation' || e.source === 'openapi-spec').length}
+                </Badge>
+              </div>
+            </div>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -296,25 +332,59 @@ export function ApiScanner() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Code className="w-5 h-5" />
-                  JavaScript Files
+                  JavaScript Files Analyzed
                   <Badge variant="secondary" className="ml-auto">
                     {scanResults.scripts.length}
                   </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-48">
-                  <div className="space-y-2">
-                    {scanResults.scripts.map((script, index) => (
-                      <div key={index}>
-                        <code className="text-sm break-all font-mono">
-                          {script}
-                        </code>
-                        {index < scanResults.scripts.length - 1 && (
-                          <Separator className="my-2" />
-                        )}
-                      </div>
-                    ))}
+                <ScrollArea className="h-96">
+                  <div className="space-y-4">
+                    {scanResults.scripts.map((script, index) => {
+                      const scriptEndpoints = scanResults.endpoints.filter(
+                        ep => ep.source === script || ep.source?.includes(script)
+                      );
+                      return (
+                        <div key={index} className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            <Code className="w-4 h-4 mt-1 text-muted-foreground flex-shrink-0" />
+                            <div className="flex-1 space-y-1">
+                              <code className="text-xs break-all font-mono bg-muted px-2 py-1 rounded block">
+                                {script}
+                              </code>
+                              {scriptEndpoints.length > 0 && (
+                                <div className="pl-4 pt-2 space-y-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {scriptEndpoints.length} endpoint{scriptEndpoints.length !== 1 ? 's' : ''} found
+                                  </Badge>
+                                  <div className="space-y-1">
+                                    {scriptEndpoints.map((ep, epIndex) => (
+                                      <div key={epIndex} className="flex items-center gap-2 text-xs">
+                                        <Badge className={`${getMethodColor(ep.method)} text-[10px] px-1.5 py-0`}>
+                                          {ep.method}
+                                        </Badge>
+                                        {ep.dbOperation && (
+                                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                            {ep.dbOperation}
+                                          </Badge>
+                                        )}
+                                        <code className="text-[11px] font-mono text-muted-foreground truncate">
+                                          {ep.url.length > 60 ? ep.url.substring(0, 60) + '...' : ep.url}
+                                        </code>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {index < scanResults.scripts.length - 1 && (
+                            <Separator className="my-3" />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </CardContent>
