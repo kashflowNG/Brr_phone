@@ -497,6 +497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Modulepreload links
       const modulePreloadRegex = /<link[^>]+rel=["']modulepreload["'][^>]+href=["']([^"']+)["']/gi;
+      let match;
       while ((match = modulePreloadRegex.exec(html)) !== null) {
         let scriptUrl = match[1];
         try {
