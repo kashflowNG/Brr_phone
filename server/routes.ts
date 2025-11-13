@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import dns from "dns";
 import { isIP } from "net";
 import { Agent } from "undici";
+import * as ipaddr from "ipaddr.js";
 import { insertApkFileSchema } from "@shared/schema";
 import { analyzeApk } from "./apk-analyzer";
 import { Readable } from "stream";
@@ -78,48 +79,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const MAX_SCRIPT_SIZE = 5 * 1024 * 1024; // 5MB limit per script
     const MAX_SCRIPTS_TO_FETCH = 50; // Increased limit for better coverage
     
-    // SSRF protection - block private networks
-    function isPrivateIP(ip: string): boolean {
-      // Normalize and extract IPv4 from IPv6-mapped format
-      let normalizedIP = ip.toLowerCase();
-      
-      // Handle IPv4-mapped IPv6 (::ffff:x.x.x.x)
-      const ipv4MappedMatch = normalizedIP.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
-      if (ipv4MappedMatch) {
-        normalizedIP = ipv4MappedMatch[1];
-      }
-      
-      // IPv4 private ranges
-      const ipv4Patterns = [
-        /^127\./,
-        /^10\./,
-        /^172\.(1[6-9]|2\d|3[01])\./,
-        /^192\.168\./,
-        /^169\.254\./, // Link-local
-        /^0\.0\.0\.0$/,
-      ];
-      
-      // IPv6 private ranges (including compressed forms)
-      const ipv6Patterns = [
-        /^::1$/, // Loopback
-        /^0:0:0:0:0:0:0:1$/, // Loopback expanded
-        /^fe[89ab][0-9a-f]:/i, // Link-local fe80::/10 (fe80-febf)
-        /^f[cd][0-9a-f]{2}:/i, // Unique local fc00::/7 (fc00-fdff)
-        /^::/, // Compressed loopback or other private
-        /^0000:/, // Leading zeros (could be loopback)
-      ];
-      
-      // Check if it's a private IPv4 (original or extracted from IPv6-mapped)
-      if (ipv4Patterns.some(p => p.test(normalizedIP))) {
+    // SSRF protection - CIDR-aware IP blocking using ipaddr.js
+    const blockedIPv4CIDRs = [
+      ipaddr.parseCIDR("0.0.0.0/8"),        // "This" network
+      ipaddr.parseCIDR("10.0.0.0/8"),       // Private
+      ipaddr.parseCIDR("100.64.0.0/10"),    // Shared address space
+      ipaddr.parseCIDR("127.0.0.0/8"),      // Loopback
+      ipaddr.parseCIDR("169.254.0.0/16"),   // Link-local
+      ipaddr.parseCIDR("172.16.0.0/12"),    // Private
+      ipaddr.parseCIDR("192.0.0.0/24"),     // IETF protocol assignments
+      ipaddr.parseCIDR("192.0.2.0/24"),     // Documentation
+      ipaddr.parseCIDR("192.168.0.0/16"),   // Private
+      ipaddr.parseCIDR("198.18.0.0/15"),    // Benchmarking
+      ipaddr.parseCIDR("198.51.100.0/24"),  // Documentation
+      ipaddr.parseCIDR("203.0.113.0/24"),   // Documentation
+      ipaddr.parseCIDR("224.0.0.0/4"),      // Multicast
+      ipaddr.parseCIDR("240.0.0.0/4"),      // Reserved
+      ipaddr.parseCIDR("255.255.255.255/32"), // Broadcast
+    ];
+
+    const blockedIPv6CIDRs = [
+      ipaddr.parseCIDR("::/128"),           // Unspecified
+      ipaddr.parseCIDR("::1/128"),          // Loopback
+      ipaddr.parseCIDR("::ffff:0:0/96"),    // IPv4-mapped
+      ipaddr.parseCIDR("64:ff9b::/96"),     // IPv4/IPv6 translation
+      ipaddr.parseCIDR("100::/64"),         // Discard prefix
+      ipaddr.parseCIDR("2001:db8::/32"),    // Documentation
+      ipaddr.parseCIDR("2001:10::/28"),     // Deprecated ORCHID
+      ipaddr.parseCIDR("fc00::/7"),         // Unique local
+      ipaddr.parseCIDR("fe80::/10"),        // Link-local
+      ipaddr.parseCIDR("ff00::/8"),         // Multicast
+    ];
+
+    function isPrivateIP(ipString: string): boolean {
+      try {
+        // Parse the IP address
+        let parsedIP = ipaddr.parse(ipString);
+        
+        // Convert IPv4-mapped IPv6 to IPv4 for proper checking
+        if (parsedIP.kind() === "ipv6" && parsedIP.isIPv4MappedAddress()) {
+          parsedIP = parsedIP.toIPv4Address();
+        }
+        
+        // Check against appropriate CIDR ranges based on IP version
+        const cidrsToCheck = parsedIP.kind() === "ipv4" ? blockedIPv4CIDRs : blockedIPv6CIDRs;
+        
+        for (const [range, prefix] of cidrsToCheck) {
+          if (parsedIP.match(range, prefix)) {
+            return true;
+          }
+        }
+        
+        return false;
+      } catch (err) {
+        // If parsing fails, block it to be safe
         return true;
       }
-      
-      // Check IPv6 patterns
-      if (ipv6Patterns.some(p => p.test(normalizedIP))) {
-        return true;
-      }
-      
-      return false;
     }
 
     // Custom DNS lookup that validates IPs during resolution
