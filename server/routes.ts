@@ -1,3 +1,4 @@
+
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -74,72 +75,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/scan-webapp", async (req, res) => {
-    const TIMEOUT_MS = 30000; // 30 seconds
-    const MAX_HTML_SIZE = 10 * 1024 * 1024; // 10MB limit for HTML
-    const MAX_SCRIPT_SIZE = 5 * 1024 * 1024; // 5MB limit per script
-    const MAX_SCRIPTS_TO_FETCH = 50; // Increased limit for better coverage
+    const TIMEOUT_MS = 30000;
+    const MAX_HTML_SIZE = 10 * 1024 * 1024;
+    const MAX_SCRIPT_SIZE = 5 * 1024 * 1024;
+    const MAX_SCRIPTS_TO_FETCH = 50;
     
-    // SSRF protection - CIDR-aware IP blocking using ipaddr.js
+    // SSRF protection
     const blockedIPv4CIDRs = [
-      ipaddr.parseCIDR("0.0.0.0/8"),        // "This" network
-      ipaddr.parseCIDR("10.0.0.0/8"),       // Private
-      ipaddr.parseCIDR("100.64.0.0/10"),    // Shared address space
-      ipaddr.parseCIDR("127.0.0.0/8"),      // Loopback
-      ipaddr.parseCIDR("169.254.0.0/16"),   // Link-local
-      ipaddr.parseCIDR("172.16.0.0/12"),    // Private
-      ipaddr.parseCIDR("192.0.0.0/24"),     // IETF protocol assignments
-      ipaddr.parseCIDR("192.0.2.0/24"),     // Documentation
-      ipaddr.parseCIDR("192.168.0.0/16"),   // Private
-      ipaddr.parseCIDR("198.18.0.0/15"),    // Benchmarking
-      ipaddr.parseCIDR("198.51.100.0/24"),  // Documentation
-      ipaddr.parseCIDR("203.0.113.0/24"),   // Documentation
-      ipaddr.parseCIDR("224.0.0.0/4"),      // Multicast
-      ipaddr.parseCIDR("240.0.0.0/4"),      // Reserved
-      ipaddr.parseCIDR("255.255.255.255/32"), // Broadcast
+      ipaddr.parseCIDR("0.0.0.0/8"),
+      ipaddr.parseCIDR("10.0.0.0/8"),
+      ipaddr.parseCIDR("100.64.0.0/10"),
+      ipaddr.parseCIDR("127.0.0.0/8"),
+      ipaddr.parseCIDR("169.254.0.0/16"),
+      ipaddr.parseCIDR("172.16.0.0/12"),
+      ipaddr.parseCIDR("192.0.0.0/24"),
+      ipaddr.parseCIDR("192.0.2.0/24"),
+      ipaddr.parseCIDR("192.168.0.0/16"),
+      ipaddr.parseCIDR("198.18.0.0/15"),
+      ipaddr.parseCIDR("198.51.100.0/24"),
+      ipaddr.parseCIDR("203.0.113.0/24"),
+      ipaddr.parseCIDR("224.0.0.0/4"),
+      ipaddr.parseCIDR("240.0.0.0/4"),
+      ipaddr.parseCIDR("255.255.255.255/32"),
     ];
 
     const blockedIPv6CIDRs = [
-      ipaddr.parseCIDR("::/128"),           // Unspecified
-      ipaddr.parseCIDR("::1/128"),          // Loopback
-      ipaddr.parseCIDR("::ffff:0:0/96"),    // IPv4-mapped
-      ipaddr.parseCIDR("64:ff9b::/96"),     // IPv4/IPv6 translation
-      ipaddr.parseCIDR("100::/64"),         // Discard prefix
-      ipaddr.parseCIDR("2001:db8::/32"),    // Documentation
-      ipaddr.parseCIDR("2001:10::/28"),     // Deprecated ORCHID
-      ipaddr.parseCIDR("fc00::/7"),         // Unique local
-      ipaddr.parseCIDR("fe80::/10"),        // Link-local
-      ipaddr.parseCIDR("ff00::/8"),         // Multicast
+      ipaddr.parseCIDR("::/128"),
+      ipaddr.parseCIDR("::1/128"),
+      ipaddr.parseCIDR("::ffff:0:0/96"),
+      ipaddr.parseCIDR("64:ff9b::/96"),
+      ipaddr.parseCIDR("100::/64"),
+      ipaddr.parseCIDR("2001:db8::/32"),
+      ipaddr.parseCIDR("2001:10::/28"),
+      ipaddr.parseCIDR("fc00::/7"),
+      ipaddr.parseCIDR("fe80::/10"),
+      ipaddr.parseCIDR("ff00::/8"),
     ];
 
     function isPrivateIP(ipString: string): boolean {
       try {
-        // Parse the IP address
         let parsedIP = ipaddr.parse(ipString);
-        
-        // Convert IPv4-mapped IPv6 to IPv4 for proper checking
         if (parsedIP.kind() === "ipv6" && parsedIP.isIPv4MappedAddress()) {
           parsedIP = parsedIP.toIPv4Address();
         }
-        
-        // Check against appropriate CIDR ranges based on IP version
         const cidrsToCheck = parsedIP.kind() === "ipv4" ? blockedIPv4CIDRs : blockedIPv6CIDRs;
-        
         for (const [range, prefix] of cidrsToCheck) {
           if (parsedIP.match(range, prefix)) {
             return true;
           }
         }
-        
         return false;
       } catch (err) {
-        // If parsing fails, block it to be safe
         return true;
       }
     }
 
-    // Custom DNS lookup that validates IPs during resolution
     const secureLookup: typeof dns.lookup = (hostname, options, callback) => {
-      // Block suspicious hostnames immediately
       if (hostname.toLowerCase() === "localhost" || hostname.includes("metadata")) {
         const error = new Error("Access to private networks not allowed") as NodeJS.ErrnoException;
         error.code = "ENOTFOUND";
@@ -157,7 +148,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return originalCallback(err);
         }
 
-        // Handle array results (when options.all is true)
         if (Array.isArray(address)) {
           for (const entry of address) {
             if (isPrivateIP(entry.address)) {
@@ -169,7 +159,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return originalCallback(null, address as any, family);
         }
 
-        // Validate the resolved IP
         if (isPrivateIP(address as string)) {
           const error = new Error("Access to private networks not allowed") as NodeJS.ErrnoException;
           error.code = "ENOTFOUND";
@@ -180,7 +169,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     };
 
-    // Create Undici agent with secure lookup
     const secureAgent = new Agent({
       connect: {
         lookup: secureLookup,
@@ -196,12 +184,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("Only HTTP/HTTPS allowed");
       }
 
-      // Check if hostname is an IP literal using Node's built-in isIP()
       const hostname = parsed.hostname;
-      const ipVersion = isIP(hostname); // Returns 4 for IPv4, 6 for IPv6, 0 for hostname
+      const ipVersion = isIP(hostname);
       
       if (ipVersion !== 0) {
-        // It's an IP literal (IPv4 or IPv6)
         if (isPrivateIP(hostname)) {
           throw new Error("Access to private networks not allowed");
         }
@@ -213,34 +199,157 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "User-Agent": "Mozilla/5.0 (compatible; APKScanner/1.0)",
         },
         signal: AbortSignal.timeout(TIMEOUT_MS),
-        redirect: "manual", // Don't follow redirects
-        // @ts-ignore - Undici dispatcher option
+        redirect: "manual",
+        // @ts-ignore
         dispatcher: secureAgent,
       });
     }
 
-    function extractEndpointsFromCode(code: string, baseUrl: URL): Array<{url: string, method: string, headers?: Record<string, string>, payload?: any}> {
-      const endpoints: Array<{url: string, method: string, headers?: Record<string, string>, payload?: any}> = [];
+    // Enhanced backend detection with comprehensive database patterns
+    function looksLikeBackend(str: string): boolean {
+      return (
+        str.includes("?op=") ||
+        str.includes("/api/") ||
+        /\.php(\?|$)/.test(str) ||
+        /\.asp(x)?(\?|$)/.test(str) ||
+        /\.jsp(\?|$)/.test(str) ||
+        /\/cgi-bin\//.test(str) ||
+        /\.cgi(\?|$)/.test(str) ||
+        /\/admin\//.test(str) ||
+        /\/upload/.test(str) ||
+        /\/login/.test(str) ||
+        /\/auth/.test(str) ||
+        /\/logout/.test(str) ||
+        /\.json$/.test(str) ||
+        /\.xml$/.test(str) ||
+        /\/graphql/.test(str) ||
+        /\/webhook/.test(str) ||
+        /\/password/.test(str) ||
+        /\/reset/.test(str) ||
+        /\/verify/.test(str) ||
+        /\/create/.test(str) ||
+        /\/insert/.test(str) ||
+        /\/update/.test(str) ||
+        /\/delete/.test(str) ||
+        /\/remove/.test(str) ||
+        /\/edit/.test(str) ||
+        /\/modify/.test(str) ||
+        /\/save/.test(str) ||
+        /\/store/.test(str) ||
+        /\/add/.test(str) ||
+        /\/new/.test(str) ||
+        /\/submit/.test(str) ||
+        /\/process/.test(str) ||
+        /\/handle/.test(str) ||
+        /\/publish/.test(str) ||
+        /\/approve/.test(str) ||
+        /\/reject/.test(str) ||
+        /\/activate/.test(str) ||
+        /\/deactivate/.test(str) ||
+        /\/enable/.test(str) ||
+        /\/disable/.test(str) ||
+        /\/bulk/.test(str) ||
+        /\/batch/.test(str) ||
+        /\/(users|posts|comments|orders|products|customers|items|accounts|profiles)\/\d+/.test(str) ||
+        /\?action=(create|update|delete|insert|edit|save|add|remove|submit|process|publish|approve)/.test(str) ||
+        /\?method=(post|put|patch|delete)/.test(str) ||
+        /\?cmd=(insert|update|delete|create|modify)/.test(str) ||
+        /\?operation=(write|modify|change|alter)/.test(str) ||
+        /\/database\//.test(str) ||
+        /\/db\//.test(str) ||
+        /\/sql/.test(str) ||
+        /\/query/.test(str) ||
+        /\/execute/.test(str) ||
+        /\/transaction/.test(str) ||
+        /\/commit/.test(str) ||
+        /\/rollback/.test(str)
+      );
+    }
+
+    // Enhanced server logic analysis
+    function analyzeServerLogic(url: string): string[] {
+      const patterns: Record<string, RegExp> = {
+        'db-insert': /insert|create|add|new|register|signup|post(?!.*get)|submit(?!.*form)/i,
+        'db-update': /update|edit|modify|change|patch|save|put|alter|set/i,
+        'db-delete': /delete|remove|destroy|drop|clear|purge|erase/i,
+        'db-upsert': /upsert|merge|replace|save/i,
+        'db-bulk': /bulk|batch|multi|mass/i,
+        'db-transaction': /transaction|commit|rollback|begin|start/i,
+        'db-read': /read|get|fetch|list|view|show|select|find|search/i,
+        'auth': /login|auth|signin|signup|register|token|jwt|oauth/i,
+        'admin': /admin|manage|control|dashboard|panel/i,
+        'upload': /upload|file|attachment|media|image/i,
+        'security': /csrf|xsrf|captcha|verify|validate/i,
+        'workflow': /approve|reject|publish|activate|enable|process|handle/i,
+        'backup': /backup|export|import|migrate|dump|restore/i
+      };
+      
+      const types: string[] = [];
+      Object.entries(patterns).forEach(([type, regex]) => {
+        if (regex.test(url)) types.push(type);
+      });
+      
+      return types;
+    }
+
+    // Database operation detection
+    function getDatabaseOperation(method: string, url: string): string {
+      const urlLower = url.toLowerCase();
+      const hasIdInPath = /\/(\w+)\/\d+/.test(urlLower);
+      
+      if (method === 'POST') {
+        if (hasIdInPath) return 'UPDATE';
+        if (/insert|create|add|new|register|signup|submit/.test(urlLower)) return 'INSERT';
+        if (/update|edit|modify|save|set/.test(urlLower)) return 'UPDATE';
+        if (/delete|remove|destroy|purge/.test(urlLower)) return 'DELETE';
+        if (/upsert|merge|replace/.test(urlLower)) return 'UPSERT';
+        if (/bulk|batch|multi/.test(urlLower)) return 'BULK_OP';
+        return 'INSERT';
+      } else if (method === 'PUT') {
+        return 'UPDATE/REPLACE';
+      } else if (method === 'PATCH') {
+        return 'PARTIAL_UPDATE';
+      } else if (method === 'DELETE') {
+        return 'DELETE';
+      } else if (method === 'GET') {
+        if (/delete|remove|destroy/.test(urlLower)) return 'DELETE_VIA_GET';
+        if (/update|edit|modify/.test(urlLower)) return 'UPDATE_VIA_GET';
+        return 'READ';
+      }
+      
+      return 'UNKNOWN';
+    }
+
+    function extractEndpointsFromCode(code: string, baseUrl: URL): Array<{
+      url: string;
+      method: string;
+      headers?: Record<string, string>;
+      dbOperation?: string;
+      logicTypes?: string[];
+    }> {
+      const endpoints: Array<{
+        url: string;
+        method: string;
+        headers?: Record<string, string>;
+        dbOperation?: string;
+        logicTypes?: string[];
+      }> = [];
       
       const patterns = [
-        // fetch() with options
         { regex: /fetch\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*({[\s\S]{0,500}?})/gi, hasOptions: true },
-        // fetch() simple
         { regex: /fetch\s*\(\s*["'`]([^"'`]+)["'`]/gi, defaultMethod: "GET" },
-        // axios with method
         { regex: /axios\.(get|post|put|delete|patch)\s*\(\s*["'`]([^"'`]+)["'`]\s*,?\s*({[\s\S]{0,500}?})?/gi, methodInMatch: true },
-        // axios() generic
         { regex: /axios\s*\(\s*({[\s\S]{0,500}?})/gi, hasConfig: true },
-        // jQuery ajax with config
         { regex: /\$\.ajax\s*\(\s*({[\s\S]{0,500}?})/gi, hasConfig: true },
-        // jQuery get/post
         { regex: /\$\.(get|post)\s*\(\s*["'`]([^"'`]+)["'`]/gi, methodInMatch: true },
-        // XMLHttpRequest
         { regex: /\.open\s*\(\s*["'`](\w+)["'`]\s*,\s*["'`]([^"'`]+)["'`]/gi, methodInMatch: true },
-        // API base URLs and endpoints
         { regex: /(?:baseURL|apiURL|API_URL|ENDPOINT|endpoint|BASE_PATH)\s*[:=]\s*["'`]([^"'`]+)["'`]/gi, defaultMethod: "GET" },
-        // Request library
         { regex: /request\.(get|post|put|delete|patch)\s*\(\s*["'`]([^"'`]+)["'`]/gi, methodInMatch: true },
+        { regex: /\.(create|insert|update|delete|save|store|upsert|merge)\s*\(\s*["'`]([^"'`]+)["'`]/gi, methodInMatch: true },
+        { regex: /\.(?:findOneAndUpdate|findByIdAndUpdate|updateOne|updateMany|deleteOne|deleteMany|insertOne|insertMany)\s*\(\s*["'`]([^"'`]+)["'`]/gi, methodInMatch: true },
+        { regex: /execute\s*\(\s*["'`]([^"'`]*(?:INSERT|UPDATE|DELETE|CREATE|MERGE|UPSERT)[^"'`]*)["'`]/gi, defaultMethod: "POST" },
+        { regex: /query\s*\(\s*["'`]([^"'`]*(?:INSERT|UPDATE|DELETE|CREATE|MERGE|UPSERT)[^"'`]*)["'`]/gi, defaultMethod: "POST" },
+        { regex: /sql\s*[:=]\s*["'`]([^"'`]*(?:INSERT|UPDATE|DELETE|CREATE|MERGE|UPSERT)[^"'`]*)["'`]/gi, defaultMethod: "POST" },
       ];
 
       for (const pattern of patterns) {
@@ -249,10 +358,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let apiUrl: string = "";
           let method = pattern.defaultMethod || "GET";
           let headers: Record<string, string> = {};
-          let payload: any = null;
           
           if (pattern.hasOptions && match[2]) {
-            // Parse fetch options
             apiUrl = match[1];
             try {
               const optionsStr = match[2];
@@ -266,14 +373,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   headers = JSON.parse(headersStr);
                 } catch {}
               }
-              
-              const bodyMatch = /body\s*:\s*JSON\.stringify\s*\(([^)]+)\)/i.exec(optionsStr);
-              if (bodyMatch) {
-                payload = { type: "JSON", sample: "data object" };
-              }
             } catch {}
           } else if (pattern.hasConfig && match[1]) {
-            // Parse axios/ajax config
             try {
               const configStr = match[1];
               const urlMatch = /url\s*:\s*["'`]([^"'`]+)["'`]/i.exec(configStr);
@@ -285,37 +386,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const typeMatch = /type\s*:\s*["'`](\w+)["'`]/i.exec(configStr);
                 if (typeMatch) method = typeMatch[1].toUpperCase();
               }
-              
-              const headersMatch = /headers\s*:\s*({[^}]+})/i.exec(configStr);
-              if (headersMatch) {
-                try {
-                  const headersStr = headersMatch[1].replace(/['"`]/g, '"').replace(/(\w+)\s*:/g, '"$1":');
-                  headers = JSON.parse(headersStr);
-                } catch {}
-              }
-              
-              const dataMatch = /data\s*:\s*({[^}]+}|["'`][^"'`]+["'`])/i.exec(configStr);
-              if (dataMatch) {
-                payload = { type: "data", sample: dataMatch[1].substring(0, 100) };
-              }
             } catch {}
           } else if (pattern.methodInMatch) {
             method = (match[1] || "GET").toUpperCase();
             apiUrl = match[2] || match[1];
-            if (match[3]) {
-              // Has data/payload
-              payload = { type: "object", sample: "data payload" };
-            }
           } else {
             apiUrl = match[1];
           }
 
-          // Skip if empty or looks like a variable
           if (!apiUrl || apiUrl.includes("${") || apiUrl.includes("#{") || apiUrl.startsWith("$") || apiUrl.includes("+")) {
             continue;
           }
 
-          // Resolve relative URLs
           try {
             if (apiUrl.startsWith("/")) {
               apiUrl = new URL(apiUrl, baseUrl.origin).href;
@@ -326,30 +408,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             continue;
           }
 
-          // Expanded endpoint detection - be more inclusive
-          const isLikelyEndpoint = 
-            apiUrl.includes("/api/") || 
-            apiUrl.includes("/v1/") ||
-            apiUrl.includes("/v2/") ||
-            apiUrl.includes("/v3/") ||
-            apiUrl.includes("/v4/") ||
-            apiUrl.includes(".json") ||
-            apiUrl.includes("/graphql") ||
-            apiUrl.includes("/rest/") ||
-            apiUrl.includes("/data/") ||
-            apiUrl.includes("/endpoint") ||
-            apiUrl.includes("/query") ||
-            apiUrl.includes("/mutation") ||
-            apiUrl.includes("/service") ||
-            apiUrl.includes("/resource") ||
-            apiUrl.match(/\/(get|post|put|delete|fetch|load|save|update|create)/i);
-
-          if (isLikelyEndpoint) {
+          if (looksLikeBackend(apiUrl)) {
+            const dbOperation = getDatabaseOperation(method, apiUrl);
+            const logicTypes = analyzeServerLogic(apiUrl);
+            
             endpoints.push({ 
               url: apiUrl, 
               method,
               headers: Object.keys(headers).length > 0 ? headers : undefined,
-              payload: payload || undefined
+              dbOperation,
+              logicTypes: logicTypes.length > 0 ? logicTypes : undefined
             });
           }
         }
@@ -367,7 +435,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const parsedUrl = new URL(url);
 
-      // Fetch the main HTML page
       const htmlResponse = await safeFetch(url);
       
       if (htmlResponse.status >= 300 && htmlResponse.status < 400) {
@@ -384,23 +451,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("HTML response too large");
       }
 
-      const allEndpoints: Array<{url: string, method: string, headers?: Record<string, string>, payload?: any}> = [];
+      const allEndpoints: Array<{
+        url: string;
+        method: string;
+        headers?: Record<string, string>;
+        dbOperation?: string;
+        logicTypes?: string[];
+        source?: string;
+      }> = [];
       const scriptUrls: string[] = [];
 
-      // Extract endpoints from HTML (including inline scripts)
-      allEndpoints.push(...extractEndpointsFromCode(html, parsedUrl));
+      // Extract endpoints from HTML
+      const htmlEndpoints = extractEndpointsFromCode(html, parsedUrl);
+      htmlEndpoints.forEach(ep => allEndpoints.push({ ...ep, source: 'html' }));
 
-      // Extract and analyze inline scripts
+      // Extract inline scripts
       const inlineScriptRegex = /<script(?![^>]*src=)([^>]*)>([\s\S]*?)<\/script>/gi;
       let inlineMatch;
       while ((inlineMatch = inlineScriptRegex.exec(html)) !== null) {
         const inlineCode = inlineMatch[2];
         if (inlineCode && inlineCode.trim()) {
-          allEndpoints.push(...extractEndpointsFromCode(inlineCode, parsedUrl));
+          const inlineEndpoints = extractEndpointsFromCode(inlineCode, parsedUrl);
+          inlineEndpoints.forEach(ep => allEndpoints.push({ ...ep, source: 'inline-script' }));
         }
       }
 
-      // Extract external script src tags
+      // Extract external script URLs
       const scriptSrcRegex = /<script[^>]+src=["']([^"']+)["']/gi;
       let match;
       while ((match = scriptSrcRegex.exec(html)) !== null) {
@@ -413,7 +489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch {}
       }
 
-      // Also look for modulepreload links
+      // Modulepreload links
       const modulePreloadRegex = /<link[^>]+rel=["']modulepreload["'][^>]+href=["']([^"']+)["']/gi;
       while ((match = modulePreloadRegex.exec(html)) !== null) {
         let scriptUrl = match[1];
@@ -425,7 +501,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch {}
       }
 
-      // Look for API documentation endpoints
+      // Scan forms
+      const formRegex = /<form[^>]*action=["']([^"']+)["'][^>]*>/gi;
+      while ((match = formRegex.exec(html)) !== null) {
+        const formAction = match[1];
+        try {
+          let actionUrl = formAction.startsWith("http") ? formAction : new URL(formAction, parsedUrl.origin).href;
+          if (looksLikeBackend(actionUrl)) {
+            const dbOperation = getDatabaseOperation('POST', actionUrl);
+            const logicTypes = analyzeServerLogic(actionUrl);
+            allEndpoints.push({
+              url: actionUrl,
+              method: 'POST',
+              dbOperation,
+              logicTypes: logicTypes.length > 0 ? logicTypes : undefined,
+              source: 'form'
+            });
+          }
+        } catch {}
+      }
+
+      // Check for API documentation
       const docEndpoints = [
         "/swagger.json",
         "/swagger-ui.html",
@@ -446,10 +542,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               url: docUrl,
               method: "GET",
               headers: { "Content-Type": "application/json" },
-              payload: { type: "API Documentation" }
+              dbOperation: "READ",
+              logicTypes: ["api-docs"],
+              source: "api-documentation"
             });
             
-            // Try to parse and extract endpoints from OpenAPI/Swagger
             const docText = await docResponse.text();
             if (docText.length < MAX_SCRIPT_SIZE) {
               try {
@@ -459,10 +556,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     for (const [method, details] of Object.entries(methods as any)) {
                       if (["get", "post", "put", "delete", "patch"].includes(method.toLowerCase())) {
                         const fullPath = new URL(path, parsedUrl.origin).href;
+                        const dbOp = getDatabaseOperation(method.toUpperCase(), fullPath);
                         allEndpoints.push({
                           url: fullPath,
                           method: method.toUpperCase(),
-                          payload: (details as any)?.requestBody ? { type: "OpenAPI spec" } : undefined
+                          dbOperation: dbOp,
+                          source: "openapi-spec"
                         });
                       }
                     }
@@ -474,7 +573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch {}
       }
 
-      // Fetch and analyze external scripts (limited)
+      // Fetch and analyze external scripts
       const scriptsToAnalyze = scriptUrls.slice(0, MAX_SCRIPTS_TO_FETCH);
       
       for (const scriptUrl of scriptsToAnalyze) {
@@ -485,11 +584,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const scriptCode = await scriptResponse.text();
             
             if (scriptCode.length <= MAX_SCRIPT_SIZE) {
-              allEndpoints.push(...extractEndpointsFromCode(scriptCode, new URL(scriptUrl)));
+              const scriptEndpoints = extractEndpointsFromCode(scriptCode, new URL(scriptUrl));
+              scriptEndpoints.forEach(ep => allEndpoints.push({ ...ep, source: scriptUrl }));
             }
           }
         } catch (err) {
-          // Skip failed script fetches
           console.error(`Failed to fetch script ${scriptUrl}:`, err);
         }
       }
@@ -499,10 +598,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         index === self.findIndex((e) => e.url === endpoint.url && e.method === endpoint.method)
       );
 
+      // Calculate statistics
+      const databaseOperations = {
+        'INSERT/CREATE': uniqueEndpoints.filter(e => e.dbOperation?.includes('INSERT') || e.dbOperation?.includes('CREATE')).length,
+        'UPDATE/EDIT': uniqueEndpoints.filter(e => e.dbOperation?.includes('UPDATE') || e.dbOperation?.includes('PARTIAL')).length,
+        'DELETE/REMOVE': uniqueEndpoints.filter(e => e.dbOperation?.includes('DELETE')).length,
+        'UPSERT/MERGE': uniqueEndpoints.filter(e => e.dbOperation?.includes('UPSERT')).length,
+        'BULK_OPERATIONS': uniqueEndpoints.filter(e => e.dbOperation?.includes('BULK')).length,
+        'READ/SELECT': uniqueEndpoints.filter(e => e.dbOperation === 'READ').length,
+      };
+
+      const serverLogic = {
+        'auth': uniqueEndpoints.filter(e => e.logicTypes?.includes('auth')).length,
+        'admin': uniqueEndpoints.filter(e => e.logicTypes?.includes('admin')).length,
+        'upload': uniqueEndpoints.filter(e => e.logicTypes?.includes('upload')).length,
+        'security': uniqueEndpoints.filter(e => e.logicTypes?.includes('security')).length,
+        'workflow': uniqueEndpoints.filter(e => e.logicTypes?.includes('workflow')).length,
+        'database': uniqueEndpoints.filter(e => e.logicTypes?.some(t => t.startsWith('db-'))).length,
+      };
+
       res.json({
         endpoints: uniqueEndpoints,
         scripts: scriptUrls.slice(0, 20),
         totalEndpoints: uniqueEndpoints.length,
+        databaseOperations,
+        serverLogic,
       });
     } catch (error) {
       console.error("Error scanning web app:", error);
@@ -521,7 +641,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "APK file not found" });
       }
 
-      // Delete file from filesystem
       try {
         await fs.unlink(apkFile.path);
       } catch (err) {
@@ -540,7 +659,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // APK Download route
   app.get("/api/apk-files/:id/download", async (req, res) => {
     try {
       const { id } = req.params;
@@ -550,12 +668,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "APK file not found" });
       }
 
-      // Set headers for file download
       res.setHeader("Content-Type", "application/vnd.android.package-archive");
       res.setHeader("Content-Disposition", `attachment; filename="${apkFile.originalName}"`);
       res.setHeader("Content-Length", apkFile.size);
 
-      // Stream the file
       const fileStream = (await import("fs")).createReadStream(apkFile.path);
       fileStream.pipe(res);
     } catch (error) {
@@ -564,7 +680,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // APK Analysis route
   app.get("/api/apk-files/:id/analyze", async (req, res) => {
     try {
       const { id } = req.params;
@@ -582,7 +697,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Emulator session routes
   app.post("/api/session/start", async (req, res) => {
     try {
       const { apkFileId, deviceId } = req.body;
@@ -596,7 +710,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "APK file not found" });
       }
 
-      // Create a mock session - replace with actual emulator service integration
       const session = {
         id: `session-${Date.now()}`,
         apkFileId,
@@ -617,7 +730,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       
-      // Mock session stop - replace with actual cleanup logic
       res.json({ 
         success: true,
         message: "Session stopped successfully" 

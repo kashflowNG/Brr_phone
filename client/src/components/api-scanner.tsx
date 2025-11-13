@@ -17,12 +17,31 @@ interface ApiEndpoint {
   method: string;
   headers?: Record<string, string>;
   payload?: any;
+  dbOperation?: string;
+  logicTypes?: string[];
+  source?: string;
 }
 
 interface ScanResult {
   endpoints: ApiEndpoint[];
   scripts: string[];
   totalEndpoints: number;
+  databaseOperations?: {
+    'INSERT/CREATE': number;
+    'UPDATE/EDIT': number;
+    'DELETE/REMOVE': number;
+    'UPSERT/MERGE': number;
+    'BULK_OPERATIONS': number;
+    'READ/SELECT': number;
+  };
+  serverLogic?: {
+    auth: number;
+    admin: number;
+    upload: number;
+    security: number;
+    workflow: number;
+    database: number;
+  };
 }
 
 export function ApiScanner() {
@@ -136,6 +155,67 @@ export function ApiScanner() {
 
       {scanResults && (
         <div className="space-y-4">
+          {scanResults.databaseOperations && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <Card className="p-4">
+                <div className="text-xs text-muted-foreground mb-1">INSERT/CREATE</div>
+                <div className="text-2xl font-bold text-green-600">{scanResults.databaseOperations['INSERT/CREATE']}</div>
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs text-muted-foreground mb-1">UPDATE/EDIT</div>
+                <div className="text-2xl font-bold text-blue-600">{scanResults.databaseOperations['UPDATE/EDIT']}</div>
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs text-muted-foreground mb-1">DELETE/REMOVE</div>
+                <div className="text-2xl font-bold text-red-600">{scanResults.databaseOperations['DELETE/REMOVE']}</div>
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs text-muted-foreground mb-1">READ/SELECT</div>
+                <div className="text-2xl font-bold text-purple-600">{scanResults.databaseOperations['READ/SELECT']}</div>
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs text-muted-foreground mb-1">UPSERT/MERGE</div>
+                <div className="text-2xl font-bold text-yellow-600">{scanResults.databaseOperations['UPSERT/MERGE']}</div>
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs text-muted-foreground mb-1">BULK OPS</div>
+                <div className="text-2xl font-bold text-orange-600">{scanResults.databaseOperations['BULK_OPERATIONS']}</div>
+              </Card>
+            </div>
+          )}
+
+          {scanResults.serverLogic && (
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3">Server Logic Analysis</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Auth:</span>
+                  <Badge variant="outline">{scanResults.serverLogic.auth}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Admin:</span>
+                  <Badge variant="outline">{scanResults.serverLogic.admin}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Upload:</span>
+                  <Badge variant="outline">{scanResults.serverLogic.upload}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Security:</span>
+                  <Badge variant="outline">{scanResults.serverLogic.security}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Workflow:</span>
+                  <Badge variant="outline">{scanResults.serverLogic.workflow}</Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Database:</span>
+                  <Badge variant="outline">{scanResults.serverLogic.database}</Badge>
+                </div>
+              </div>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -156,6 +236,21 @@ export function ApiScanner() {
                           <Badge className={getMethodColor(endpoint.method)}>
                             {endpoint.method}
                           </Badge>
+                          {endpoint.dbOperation && (
+                            <Badge variant="outline" className="text-xs">
+                              DB: {endpoint.dbOperation}
+                            </Badge>
+                          )}
+                          {endpoint.logicTypes && endpoint.logicTypes.length > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {endpoint.logicTypes.join(', ')}
+                            </Badge>
+                          )}
+                          {endpoint.source && (
+                            <Badge variant="outline" className="text-xs opacity-60">
+                              {endpoint.source}
+                            </Badge>
+                          )}
                           <code className="text-sm flex-1 break-all font-mono bg-muted px-2 py-1 rounded-md">
                             {endpoint.url}
                           </code>
