@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import dns from "dns";
 import { isIP } from "net";
 import { Agent } from "undici";
-import * as ipaddr from "ipaddr.js";
+import ipaddr from "ipaddr.js";
 import { insertApkFileSchema } from "@shared/schema";
 import { analyzeApk } from "./apk-analyzer";
 import { Readable } from "stream";
