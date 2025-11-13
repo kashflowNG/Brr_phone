@@ -1,4 +1,3 @@
-
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -79,7 +78,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const MAX_HTML_SIZE = 10 * 1024 * 1024;
     const MAX_SCRIPT_SIZE = 5 * 1024 * 1024;
     const MAX_SCRIPTS_TO_FETCH = 50;
-    
+
     // SSRF protection
     const blockedIPv4CIDRs = [
       ipaddr.parseCIDR("0.0.0.0/8"),
@@ -179,14 +178,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     async function safeFetch(url: string): Promise<Response> {
       const parsed = new URL(url);
-      
+
       if (!["http:", "https:"].includes(parsed.protocol)) {
         throw new Error("Only HTTP/HTTPS allowed");
       }
 
       const hostname = parsed.hostname;
       const ipVersion = isIP(hostname);
-      
+
       if (ipVersion !== 0) {
         if (isPrivateIP(hostname)) {
           throw new Error("Access to private networks not allowed");
@@ -283,12 +282,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'workflow': /approve|reject|publish|activate|enable|process|handle/i,
         'backup': /backup|export|import|migrate|dump|restore/i
       };
-      
+
       const types: string[] = [];
       Object.entries(patterns).forEach(([type, regex]) => {
         if (regex.test(url)) types.push(type);
       });
-      
+
       return types;
     }
 
@@ -296,7 +295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     function getDatabaseOperation(method: string, url: string): string {
       const urlLower = url.toLowerCase();
       const hasIdInPath = /\/(\w+)\/\d+/.test(urlLower);
-      
+
       if (method === 'POST') {
         if (hasIdInPath) return 'UPDATE';
         if (/insert|create|add|new|register|signup|submit/.test(urlLower)) return 'INSERT';
@@ -316,7 +315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (/update|edit|modify/.test(urlLower)) return 'UPDATE_VIA_GET';
         return 'READ';
       }
-      
+
       return 'UNKNOWN';
     }
 
@@ -326,6 +325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       headers?: Record<string, string>;
       dbOperation?: string;
       logicTypes?: string[];
+      codeSnippet?: string;
     }> {
       const endpoints: Array<{
         url: string;
@@ -333,8 +333,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         headers?: Record<string, string>;
         dbOperation?: string;
         logicTypes?: string[];
+        codeSnippet?: string;
       }> = [];
-      
+
       const patterns = [
         { regex: /fetch\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*({[\s\S]{0,500}?})/gi, hasOptions: true },
         { regex: /fetch\s*\(\s*["'`]([^"'`]+)["'`]/gi, defaultMethod: "GET" },
@@ -358,14 +359,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let apiUrl: string = "";
           let method = pattern.defaultMethod || "GET";
           let headers: Record<string, string> = {};
-          
+          let codeSnippet = match[0];
+
           if (pattern.hasOptions && match[2]) {
             apiUrl = match[1];
             try {
               const optionsStr = match[2];
               const methodMatch = /method\s*:\s*["'`](\w+)["'`]/i.exec(optionsStr);
               if (methodMatch) method = methodMatch[1].toUpperCase();
-              
+
               const headersMatch = /headers\s*:\s*({[^}]+})/i.exec(optionsStr);
               if (headersMatch) {
                 try {
@@ -379,7 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const configStr = match[1];
               const urlMatch = /url\s*:\s*["'`]([^"'`]+)["'`]/i.exec(configStr);
               if (urlMatch) apiUrl = urlMatch[1];
-              
+
               const methodMatch = /method\s*:\s*["'`](\w+)["'`]/i.exec(configStr);
               if (methodMatch) method = methodMatch[1].toUpperCase();
               else if (/type\s*:\s*["'`](\w+)["'`]/i.test(configStr)) {
@@ -411,13 +413,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (looksLikeBackend(apiUrl)) {
             const dbOperation = getDatabaseOperation(method, apiUrl);
             const logicTypes = analyzeServerLogic(apiUrl);
-            
+
             endpoints.push({ 
               url: apiUrl, 
               method,
               headers: Object.keys(headers).length > 0 ? headers : undefined,
               dbOperation,
-              logicTypes: logicTypes.length > 0 ? logicTypes : undefined
+              logicTypes: logicTypes.length > 0 ? logicTypes : undefined,
+              codeSnippet
             });
           }
         }
@@ -425,7 +428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return endpoints;
     }
-    
+
     try {
       const { url } = req.body;
 
@@ -436,7 +439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsedUrl = new URL(url);
 
       const htmlResponse = await safeFetch(url);
-      
+
       if (htmlResponse.status >= 300 && htmlResponse.status < 400) {
         return res.status(400).json({ error: "Redirects are not followed" });
       }
@@ -446,7 +449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const html = await htmlResponse.text();
-      
+
       if (html.length > MAX_HTML_SIZE) {
         throw new Error("HTML response too large");
       }
@@ -458,8 +461,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dbOperation?: string;
         logicTypes?: string[];
         source?: string;
+        codeSnippet?: string;
       }> = [];
       const scriptUrls: string[] = [];
+      const scriptSources: Record<string, string> = {};
+      const inlineScripts: Array<{ code: string; source: string }> = [];
 
       // Extract endpoints from HTML
       const htmlEndpoints = extractEndpointsFromCode(html, parsedUrl);
@@ -472,13 +478,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const inlineCode = inlineMatch[2];
         if (inlineCode && inlineCode.trim()) {
           const inlineEndpoints = extractEndpointsFromCode(inlineCode, parsedUrl);
-          inlineEndpoints.forEach(ep => allEndpoints.push({ ...ep, source: 'inline-script' }));
+          inlineEndpoints.forEach(ep => allEndpoints.push({ ...ep, source: 'inline-script', codeSnippet: inlineCode }));
+          inlineScripts.push({ code: inlineCode, source: 'inline-script' });
         }
       }
 
       // Extract external script URLs
       const scriptSrcRegex = /<script[^>]+src=["']([^"']+)["']/gi;
-      let match;
       while ((match = scriptSrcRegex.exec(html)) !== null) {
         let scriptUrl = match[1];
         try {
@@ -546,7 +552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               logicTypes: ["api-docs"],
               source: "api-documentation"
             });
-            
+
             const docText = await docResponse.text();
             if (docText.length < MAX_SCRIPT_SIZE) {
               try {
@@ -575,14 +581,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Fetch and analyze external scripts
       const scriptsToAnalyze = scriptUrls.slice(0, MAX_SCRIPTS_TO_FETCH);
-      
+
       for (const scriptUrl of scriptsToAnalyze) {
         try {
           const scriptResponse = await safeFetch(scriptUrl);
-          
+
           if (scriptResponse.ok) {
             const scriptCode = await scriptResponse.text();
-            
+            scriptSources[scriptUrl] = scriptCode;
+
             if (scriptCode.length <= MAX_SCRIPT_SIZE) {
               const scriptEndpoints = extractEndpointsFromCode(scriptCode, new URL(scriptUrl));
               scriptEndpoints.forEach(ep => allEndpoints.push({ ...ep, source: scriptUrl }));
@@ -619,10 +626,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         endpoints: uniqueEndpoints,
-        scripts: scriptUrls.slice(0, 20),
+        scripts: [...scriptUrls, ...(inlineScripts.length > 0 ? ["inline-script"] : [])],
+        scriptSources,
         totalEndpoints: uniqueEndpoints.length,
         databaseOperations,
-        serverLogic,
+        serverLogic
       });
     } catch (error) {
       console.error("Error scanning web app:", error);
@@ -729,7 +737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/session/:id/stop", async (req, res) => {
     try {
       const { id } = req.params;
-      
+
       res.json({ 
         success: true,
         message: "Session stopped successfully" 

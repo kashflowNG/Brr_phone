@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { apiRequest } from "@/lib/queryClient";
-import { Search, Globe, Code, Download } from "lucide-react";
+import { Search, Globe, Code, Download, ChevronDown, ChevronRight } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface ApiEndpoint {
   url: string;
@@ -20,11 +21,18 @@ interface ApiEndpoint {
   dbOperation?: string;
   logicTypes?: string[];
   source?: string;
+  codeSnippet?: string;
+}
+
+interface ScriptSource {
+  url: string;
+  code?: string;
 }
 
 interface ScanResult {
   endpoints: ApiEndpoint[];
   scripts: string[];
+  scriptSources?: ScriptSource[];
   totalEndpoints: number;
   databaseOperations?: {
     'INSERT/CREATE': number;
@@ -332,57 +340,104 @@ export function ApiScanner() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Code className="w-5 h-5" />
-                  JavaScript Files Analyzed
+                  JavaScript Code Analysis
                   <Badge variant="secondary" className="ml-auto">
-                    {scanResults.scripts.length}
+                    {scanResults.scripts.length} {scanResults.scripts.length === 1 ? 'source' : 'sources'}
                   </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-96">
+                <ScrollArea className="h-[500px]">
                   <div className="space-y-4">
                     {scanResults.scripts.map((script, index) => {
                       const scriptEndpoints = scanResults.endpoints.filter(
                         ep => ep.source === script || ep.source?.includes(script)
                       );
+                      const scriptSource = scanResults.scriptSources?.find(s => s.url === script);
+                      const [isOpen, setIsOpen] = useState(false);
+                      
                       return (
-                        <div key={index} className="space-y-2">
-                          <div className="flex items-start gap-2">
-                            <Code className="w-4 h-4 mt-1 text-muted-foreground flex-shrink-0" />
-                            <div className="flex-1 space-y-1">
-                              <code className="text-xs break-all font-mono bg-muted px-2 py-1 rounded block">
-                                {script}
-                              </code>
-                              {scriptEndpoints.length > 0 && (
-                                <div className="pl-4 pt-2 space-y-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    {scriptEndpoints.length} endpoint{scriptEndpoints.length !== 1 ? 's' : ''} found
-                                  </Badge>
-                                  <div className="space-y-1">
-                                    {scriptEndpoints.map((ep, epIndex) => (
-                                      <div key={epIndex} className="flex items-center gap-2 text-xs">
-                                        <Badge className={`${getMethodColor(ep.method)} text-[10px] px-1.5 py-0`}>
-                                          {ep.method}
+                        <Card key={index} className="border-2">
+                          <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+                            <CollapsibleTrigger asChild>
+                              <div className="p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                                <div className="flex items-start gap-3">
+                                  {isOpen ? (
+                                    <ChevronDown className="w-4 h-4 mt-1 text-muted-foreground flex-shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 mt-1 text-muted-foreground flex-shrink-0" />
+                                  )}
+                                  <div className="flex-1 space-y-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <Code className="w-4 h-4 text-muted-foreground" />
+                                      <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                                        {script.length > 80 ? '...' + script.substring(script.length - 80) : script}
+                                      </code>
+                                    </div>
+                                    {scriptEndpoints.length > 0 && (
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="text-xs">
+                                          {scriptEndpoints.length} endpoint{scriptEndpoints.length !== 1 ? 's' : ''} discovered
                                         </Badge>
-                                        {ep.dbOperation && (
-                                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                            {ep.dbOperation}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </CollapsibleTrigger>
+                            
+                            <CollapsibleContent>
+                              <div className="px-4 pb-4 space-y-3">
+                                <Separator />
+                                
+                                {scriptEndpoints.length > 0 && (
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-semibold">Endpoints Found:</h4>
+                                    {scriptEndpoints.map((ep, epIndex) => (
+                                      <div key={epIndex} className="space-y-2 p-3 bg-muted/50 rounded-lg">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <Badge className={getMethodColor(ep.method)}>
+                                            {ep.method}
                                           </Badge>
+                                          {ep.dbOperation && (
+                                            <Badge variant="outline">
+                                              {ep.dbOperation}
+                                            </Badge>
+                                          )}
+                                          <code className="text-xs font-mono flex-1">
+                                            {ep.url}
+                                          </code>
+                                        </div>
+                                        
+                                        {ep.codeSnippet && (
+                                          <div className="mt-2">
+                                            <p className="text-xs text-muted-foreground mb-1">Code Context:</p>
+                                            <div className="bg-black/90 text-green-400 p-3 rounded-md overflow-x-auto">
+                                              <pre className="text-xs font-mono whitespace-pre-wrap">
+                                                {ep.codeSnippet}
+                                              </pre>
+                                            </div>
+                                          </div>
                                         )}
-                                        <code className="text-[11px] font-mono text-muted-foreground truncate">
-                                          {ep.url.length > 60 ? ep.url.substring(0, 60) + '...' : ep.url}
-                                        </code>
                                       </div>
                                     ))}
                                   </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          {index < scanResults.scripts.length - 1 && (
-                            <Separator className="my-3" />
-                          )}
-                        </div>
+                                )}
+                                
+                                {scriptSource?.code && (
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-semibold">Full Source Code:</h4>
+                                    <div className="bg-black/90 text-gray-300 p-4 rounded-md overflow-x-auto max-h-96">
+                                      <pre className="text-xs font-mono">
+                                        {scriptSource.code}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        </Card>
                       );
                     })}
                   </div>
