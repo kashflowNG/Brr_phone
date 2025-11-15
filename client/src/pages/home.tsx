@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { ApkUploader } from "@/components/apk-uploader";
-import { ApiScanner } from "@/components/api-scanner";
 import { ApkDetails } from "@/components/apk-details";
 import { ApkAnalysis } from "@/components/apk-analysis";
 import { FileManager } from "@/components/file-manager";
@@ -30,29 +29,12 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-6 h-full">
             {/* Left Sidebar */}
             <div className="space-y-6 overflow-y-auto">
-              {/* APK Upload/Download Section */}
+              {/* APK Upload Section */}
               <section>
                 <h2 className="text-xl font-medium mb-4" data-testid="text-upload-title">
-                  Add APK
+                  Upload APK
                 </h2>
-                <Tabs defaultValue="upload">
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
-                    <TabsTrigger value="upload" data-testid="tab-upload">
-                      File Upload
-                    </TabsTrigger>
-                    <TabsTrigger value="api" data-testid="tab-api">
-                      API Scanner
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="upload" className="mt-0">
-                    <ApkUploader onUploadComplete={refetchApks} />
-                  </TabsContent>
-                  
-                  <TabsContent value="api" className="mt-0">
-                    <ApiScanner />
-                  </TabsContent>
-                </Tabs>
+                <ApkUploader onUploadComplete={refetchApks} />
               </section>
 
               {/* File Manager */}
