@@ -1,11 +1,12 @@
 
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { CloudUpload } from "lucide-react";
+import { CloudUpload, Link as LinkIcon } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 
 interface ApkUploaderProps {
@@ -15,6 +16,7 @@ interface ApkUploaderProps {
 export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
   const { toast } = useToast();
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [apkUrl, setApkUrl] = useState("");
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -34,6 +36,29 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
     onError: (error: Error) => {
       toast({
         title: "Upload failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      setUploadProgress(0);
+    },
+  });
+
+  const downloadFromUrlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      return apiRequest("POST", "/api/apk-files/download-from-url", { url });
+    },
+    onSuccess: () => {
+      toast({
+        title: "APK downloaded successfully",
+        description: "Your file is ready to scan",
+      });
+      setUploadProgress(0);
+      setApkUrl("");
+      onUploadComplete();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Download failed",
         description: error.message,
         variant: "destructive",
       });
@@ -98,6 +123,20 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
     uploadMutation.mutate(file);
   }, [uploadMutation, toast]);
 
+  const handleDownloadFromUrl = () => {
+    if (!apkUrl.trim()) {
+      toast({
+        title: "URL required",
+        description: "Please enter an APK URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setUploadProgress(50);
+    downloadFromUrlMutation.mutate(apkUrl);
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
@@ -109,6 +148,8 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
     noKeyboard: false,
   });
 
+  const isProcessing = uploadMutation.isPending || downloadFromUrlMutation.isPending;
+
   return (
     <div className="space-y-4">
       <div
@@ -118,7 +159,7 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
           flex flex-col items-center justify-center gap-4
           transition-all duration-200
           ${isDragActive ? "border-primary bg-primary/10 scale-105" : "border-border"}
-          ${uploadMutation.isPending ? "opacity-50" : ""}
+          ${isProcessing ? "opacity-50" : ""}
         `}
         data-testid="dropzone-apk-upload"
       >
@@ -138,7 +179,7 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
             <Button 
               type="button" 
               size="lg"
-              disabled={uploadMutation.isPending}
+              disabled={isProcessing}
               className="cursor-pointer"
               asChild
             >
@@ -151,11 +192,45 @@ export function ApkUploader({ onUploadComplete }: ApkUploaderProps) {
               type="file"
               accept=".apk,application/vnd.android.package-archive"
               onChange={handleFileChange}
-              disabled={uploadMutation.isPending}
+              disabled={isProcessing}
               className="sr-only"
             />
           </label>
         </div>
+      </div>
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">
+            Or download from URL
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          type="url"
+          placeholder="https://example.com/app.apk"
+          value={apkUrl}
+          onChange={(e) => setApkUrl(e.target.value)}
+          disabled={isProcessing}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              handleDownloadFromUrl();
+            }
+          }}
+        />
+        <Button
+          onClick={handleDownloadFromUrl}
+          disabled={isProcessing}
+          size="default"
+        >
+          <LinkIcon className="mr-2 h-4 w-4" />
+          Download
+        </Button>
       </div>
 
       {uploadProgress > 0 && (

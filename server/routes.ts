@@ -67,6 +67,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/apk-files/download-from-url", async (req, res) => {
+    try {
+      const { url } = req.body;
+
+      if (!url) {
+        return res.status(400).json({ error: "URL is required" });
+      }
+
+      // Validate URL
+      let apkUrl: URL;
+      try {
+        apkUrl = new URL(url);
+      } catch {
+        return res.status(400).json({ error: "Invalid URL" });
+      }
+
+      // Download the APK
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        return res.status(400).json({ error: "Failed to download APK from URL" });
+      }
+
+      const contentType = response.headers.get("content-type");
+      if (contentType && !contentType.includes("application/vnd.android.package-archive") && !url.endsWith(".apk")) {
+        return res.status(400).json({ error: "URL does not point to an APK file" });
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Extract filename from URL or use default
+      const urlPath = apkUrl.pathname;
+      const urlFilename = path.basename(urlPath);
+      const originalName = urlFilename.endsWith(".apk") ? urlFilename : "downloaded.apk";
+
+      // Save to disk
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      const filename = "apk-" + uniqueSuffix + ".apk";
+      const filePath = path.join(uploadDir, filename);
+
+      await fs.writeFile(filePath, buffer);
+
+      const apkData = {
+        filename,
+        originalName,
+        size: buffer.length,
+        path: filePath,
+      };
+
+      const validatedData = insertApkFileSchema.parse(apkData);
+      const apkFile = await storage.createApkFile(validatedData);
+
+      res.status(201).json(apkFile);
+    } catch (error) {
+      console.error("Error downloading APK from URL:", error);
+      res.status(500).json({ error: "Failed to download APK from URL" });
+    }
+  });
+
   app.delete("/api/apk-files/:id", async (req, res) => {
     try {
       const { id } = req.params;
