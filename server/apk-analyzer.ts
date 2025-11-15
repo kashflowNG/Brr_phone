@@ -29,6 +29,14 @@ export interface UiComponent {
   file: string;
 }
 
+export interface SecurityFinding {
+  type: string;
+  severity: "critical" | "high" | "medium" | "low";
+  description: string;
+  location: string;
+  evidence?: string;
+}
+
 export interface ApkAnalysisResult {
   apiEndpoints: ApiEndpoint[];
   uiComponents: UiComponent[];
@@ -52,13 +60,28 @@ export interface ApkAnalysisResult {
     textFields: number;
     clickHandlers: number;
   };
+  securityFindings: SecurityFinding[];
+  permissions: string[];
+  cryptoUsage: {
+    hardcodedKeys: number;
+    weakAlgorithms: number;
+    sslIssues: number;
+  };
+  thirdPartyLibraries: string[];
 }
 
 export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
   const apiEndpoints: ApiEndpoint[] = [];
   const uiComponents: UiComponent[] = [];
+  const securityFindings: SecurityFinding[] = [];
+  const permissions: string[] = [];
+  const thirdPartyLibraries = new Set<string>();
   const seenUrls = new Set<string>();
   const seenUiElements = new Set<string>();
+  
+  let hardcodedKeys = 0;
+  let weakAlgorithms = 0;
+  let sslIssues = 0;
   
   try {
     const zip = new AdmZip(apkPath);
@@ -98,6 +121,63 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
         /(?:ws|wss):\/\/[^\s"'\`<>)}\]\n]+/gi,
         /\/graphql[^\s"'\`<>)}\]\n]*/gi,
         /\/(?:api|rest|service|endpoint|backend|server)\/[a-zA-Z0-9_\-\/\.]+/gi,
+      ];
+
+      // Security patterns
+      const securityPatterns = {
+        hardcodedSecrets: [
+          /["']([a-zA-Z0-9]{32,})["']/g, // API keys
+          /password\s*[:=]\s*["']([^"']{4,})["']/gi,
+          /secret\s*[:=]\s*["']([^"']{4,})["']/gi,
+          /api[-_]?key\s*[:=]\s*["']([^"']{10,})["']/gi,
+          /access[-_]?token\s*[:=]\s*["']([^"']{10,})["']/gi,
+          /private[-_]?key\s*[:=]\s*["']([^"']{10,})["']/gi,
+          /aws[-_]?secret\s*[:=]\s*["']([^"']{10,})["']/gi,
+          /AKIA[0-9A-Z]{16}/g, // AWS Access Key
+        ],
+        weakCrypto: [
+          /DES|RC4|MD5|SHA1(?!256|384|512)/gi,
+          /TrustAllCertificates|TrustManager|HostnameVerifier/gi,
+          /SSLSocketFactory\.ALLOW_ALL_HOSTNAME_VERIFIER/gi,
+        ],
+        sqlInjection: [
+          /execSQL\s*\([^)]*\+/gi,
+          /rawQuery\s*\([^)]*\+/gi,
+          /query\s*\([^)]*\+[^)]*\)/gi,
+        ],
+        commandInjection: [
+          /Runtime\.getRuntime\(\)\.exec/gi,
+          /ProcessBuilder/gi,
+        ],
+        unsafeWebView: [
+          /setJavaScriptEnabled\s*\(\s*true/gi,
+          /addJavascriptInterface/gi,
+          /setAllowFileAccess\s*\(\s*true/gi,
+          /setAllowFileAccessFromFileURLs\s*\(\s*true/gi,
+        ],
+        urlSchemes: [
+          /http:\/\//gi, // Insecure HTTP
+        ],
+      };
+
+      // Permission patterns
+      const permissionPatterns = [
+        /<uses-permission\s+android:name="([^"]+)"/gi,
+        /<permission\s+android:name="([^"]+)"/gi,
+      ];
+
+      // Third-party library patterns
+      const libraryPatterns = [
+        /com\.google\.(firebase|android|gms)/gi,
+        /com\.facebook\./gi,
+        /retrofit2?\./gi,
+        /okhttp3?\./gi,
+        /com\.squareup\./gi,
+        /io\.reactivex/gi,
+        /com\.amazonaws/gi,
+        /org\.apache/gi,
+        /com\.stripe/gi,
+        /com\.paypal/gi,
       ];
 
       // UI Component patterns
@@ -317,6 +397,108 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
                 const content = await fs.readFile(fullPath, "utf8");
                 const relPath = path.relative(tempDir, fullPath);
                 
+                // Extract Permissions
+                if (entry.name === "AndroidManifest.xml") {
+                  for (const pattern of permissionPatterns) {
+                    let match;
+                    pattern.lastIndex = 0;
+                    while ((match = pattern.exec(content)) !== null) {
+                      const permission = match[1];
+                      if (!permissions.includes(permission)) {
+                        permissions.push(permission);
+                        
+                        // Flag dangerous permissions
+                        if (permission.includes("INTERNET") || 
+                            permission.includes("READ_EXTERNAL_STORAGE") ||
+                            permission.includes("WRITE_EXTERNAL_STORAGE") ||
+                            permission.includes("CAMERA") ||
+                            permission.includes("RECORD_AUDIO") ||
+                            permission.includes("ACCESS_FINE_LOCATION") ||
+                            permission.includes("READ_CONTACTS") ||
+                            permission.includes("SEND_SMS")) {
+                          securityFindings.push({
+                            type: "Sensitive Permission",
+                            severity: "medium",
+                            description: `App requests ${permission.split('.').pop()}`,
+                            location: relPath,
+                          });
+                        }
+                      }
+                    }
+                  }
+                }
+
+                // Detect Third-party Libraries
+                for (const pattern of libraryPatterns) {
+                  let match;
+                  pattern.lastIndex = 0;
+                  while ((match = pattern.exec(content)) !== null) {
+                    thirdPartyLibraries.add(match[0].split('.').slice(0, 3).join('.'));
+                  }
+                }
+
+                // Security Analysis
+                for (const [type, patterns] of Object.entries(securityPatterns)) {
+                  for (const pattern of patterns) {
+                    let match;
+                    pattern.lastIndex = 0;
+                    while ((match = pattern.exec(content)) !== null) {
+                      const contextStart = Math.max(0, match.index - 100);
+                      const contextEnd = Math.min(content.length, match.index + 100);
+                      const evidence = content.substring(contextStart, contextEnd)
+                        .replace(/\s+/g, ' ').trim().substring(0, 100);
+
+                      if (type === "hardcodedSecrets") {
+                        hardcodedKeys++;
+                        if (match[1] && match[1].length > 15) {
+                          securityFindings.push({
+                            type: "Hardcoded Secret",
+                            severity: "high",
+                            description: `Potential hardcoded secret found (${match[1].substring(0, 10)}...)`,
+                            location: relPath,
+                            evidence,
+                          });
+                        }
+                      } else if (type === "weakCrypto") {
+                        weakAlgorithms++;
+                        securityFindings.push({
+                          type: "Weak Cryptography",
+                          severity: "high",
+                          description: `Weak or deprecated crypto detected: ${match[0]}`,
+                          location: relPath,
+                          evidence,
+                        });
+                      } else if (type === "sqlInjection") {
+                        securityFindings.push({
+                          type: "SQL Injection Risk",
+                          severity: "critical",
+                          description: "Dynamic SQL query construction detected",
+                          location: relPath,
+                          evidence,
+                        });
+                      } else if (type === "commandInjection") {
+                        securityFindings.push({
+                          type: "Command Injection Risk",
+                          severity: "critical",
+                          description: "Runtime command execution detected",
+                          location: relPath,
+                          evidence,
+                        });
+                      } else if (type === "unsafeWebView") {
+                        securityFindings.push({
+                          type: "Unsafe WebView Configuration",
+                          severity: "high",
+                          description: `Insecure WebView setting: ${match[0]}`,
+                          location: relPath,
+                          evidence,
+                        });
+                      } else if (type === "urlSchemes") {
+                        sslIssues++;
+                      }
+                    }
+                  }
+                }
+                
                 // Extract UI Components
                 for (const [uiType, patterns] of Object.entries(uiPatterns)) {
                   for (const pattern of patterns) {
@@ -491,13 +673,27 @@ export async function analyzeApk(apkPath: string): Promise<ApkAnalysisResult> {
       clickHandlers: uiComponents.filter(u => u.listeners.includes('Click')).length,
     };
 
+    // Sort security findings by severity
+    securityFindings.sort((a, b) => {
+      const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      return severityOrder[a.severity] - severityOrder[b.severity];
+    });
+
     return {
       apiEndpoints,
       uiComponents,
       totalEndpoints: apiEndpoints.length,
       totalUiElements: uiComponents.length,
       databaseOperations,
-      summary
+      summary,
+      securityFindings: securityFindings.slice(0, 50), // Limit to top 50
+      permissions: permissions.sort(),
+      cryptoUsage: {
+        hardcodedKeys,
+        weakAlgorithms,
+        sslIssues,
+      },
+      thirdPartyLibraries: Array.from(thirdPartyLibraries).sort(),
     };
 
   } catch (error) {

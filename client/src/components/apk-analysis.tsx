@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Code, RefreshCw, Database, TrendingUp, Shield, MousePointer, Type, Smartphone } from "lucide-react";
+import { Loader2, Code, RefreshCw, Database, TrendingUp, Shield, MousePointer, Type, Smartphone, AlertTriangle, Lock, Key, Package } from "lucide-react";
 import type { ApkFile } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +31,14 @@ interface UiComponent {
   file: string;
 }
 
+interface SecurityFinding {
+  type: string;
+  severity: "critical" | "high" | "medium" | "low";
+  description: string;
+  location: string;
+  evidence?: string;
+}
+
 interface ApkAnalysisResult {
   apiEndpoints: ApiEndpoint[];
   uiComponents: UiComponent[];
@@ -54,6 +62,14 @@ interface ApkAnalysisResult {
     textFields: number;
     clickHandlers: number;
   };
+  securityFindings: SecurityFinding[];
+  permissions: string[];
+  cryptoUsage: {
+    hardcodedKeys: number;
+    weakAlgorithms: number;
+    sslIssues: number;
+  };
+  thirdPartyLibraries: string[];
 }
 
 interface ApkAnalysisProps {
@@ -91,6 +107,16 @@ export function ApkAnalysis({ apkFile }: ApkAnalysisProps) {
       low: "bg-gray-500 text-white"
     };
     return colors[confidence as keyof typeof colors] || colors.low;
+  };
+
+  const getSeverityBadge = (severity: string) => {
+    const colors = {
+      critical: "bg-red-600 text-white",
+      high: "bg-orange-500 text-white",
+      medium: "bg-yellow-500 text-white",
+      low: "bg-blue-500 text-white"
+    };
+    return colors[severity as keyof typeof colors] || colors.low;
   };
 
   return (
@@ -141,8 +167,11 @@ export function ApkAnalysis({ apkFile }: ApkAnalysisProps) {
         )}
 
         {data && !isLoading && (
-          <Tabs defaultValue="endpoints" className="h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-4">
+          <Tabs defaultValue="security" className="h-full flex flex-col">
+            <TabsList className="grid w-full grid-cols-6">
+              <TabsTrigger value="security">
+                Security ({data.securityFindings.length})
+              </TabsTrigger>
               <TabsTrigger value="endpoints">
                 API ({data.totalEndpoints})
               </TabsTrigger>
@@ -150,12 +179,62 @@ export function ApkAnalysis({ apkFile }: ApkAnalysisProps) {
                 UI ({data.totalUiElements})
               </TabsTrigger>
               <TabsTrigger value="database">
-                Database
+                DB
               </TabsTrigger>
-              <TabsTrigger value="summary">
-                Summary
+              <TabsTrigger value="permissions">
+                Perms ({data.permissions.length})
+              </TabsTrigger>
+              <TabsTrigger value="libraries">
+                Libs ({data.thirdPartyLibraries.length})
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="security" className="flex-1 mt-4">
+              <ScrollArea className="h-[500px] pr-4">
+                {data.securityFindings.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Shield className="h-12 w-12 mx-auto mb-4 text-green-500" />
+                    <p className="text-sm font-medium text-green-600">No security issues detected</p>
+                    <p className="text-xs text-muted-foreground mt-1">Your APK looks safe</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {data.securityFindings.map((finding, index) => (
+                      <Card key={index} className="p-3 border-l-4" style={{
+                        borderLeftColor: finding.severity === 'critical' ? '#dc2626' :
+                                        finding.severity === 'high' ? '#f97316' :
+                                        finding.severity === 'medium' ? '#eab308' : '#3b82f6'
+                      }}>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2 flex-wrap">
+                            <Badge className={`shrink-0 ${getSeverityBadge(finding.severity)}`}>
+                              {finding.severity.toUpperCase()}
+                            </Badge>
+                            <Badge variant="outline" className="shrink-0">
+                              {finding.type}
+                            </Badge>
+                          </div>
+                          
+                          <p className="text-sm font-medium">
+                            {finding.description}
+                          </p>
+
+                          {finding.evidence && (
+                            <code className="text-xs block bg-muted px-2 py-1 rounded break-all">
+                              {finding.evidence}
+                            </code>
+                          )}
+                          
+                          <p className="text-xs text-muted-foreground truncate">
+                            📁 {finding.location}
+                          </p>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
 
             <TabsContent value="endpoints" className="flex-1 mt-4">
               <ScrollArea className="h-[500px] pr-4">
@@ -329,6 +408,50 @@ export function ApkAnalysis({ apkFile }: ApkAnalysisProps) {
               </div>
             </TabsContent>
 
+            <TabsContent value="permissions" className="flex-1 mt-4">
+              <ScrollArea className="h-[500px] pr-4">
+                <div className="space-y-2">
+                  {data.permissions.map((permission, index) => {
+                    const isDangerous = permission.includes("INTERNET") || 
+                                      permission.includes("STORAGE") ||
+                                      permission.includes("CAMERA") ||
+                                      permission.includes("LOCATION") ||
+                                      permission.includes("CONTACTS") ||
+                                      permission.includes("SMS");
+                    
+                    return (
+                      <Card key={index} className="p-3">
+                        <div className="flex items-center gap-2">
+                          {isDangerous && <AlertTriangle className="h-4 w-4 text-orange-500" />}
+                          <code className="text-xs flex-1">{permission}</code>
+                          {isDangerous && (
+                            <Badge variant="outline" className="text-orange-500 border-orange-500">
+                              Sensitive
+                            </Badge>
+                          )}
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="libraries" className="flex-1 mt-4">
+              <ScrollArea className="h-[500px] pr-4">
+                <div className="space-y-2">
+                  {data.thirdPartyLibraries.map((lib, index) => (
+                    <Card key={index} className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <code className="text-xs flex-1">{lib}</code>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
             <TabsContent value="summary" className="flex-1 mt-4">
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -426,6 +549,30 @@ export function ApkAnalysis({ apkFile }: ApkAnalysisProps) {
                     <p>• {data.summary.buttons} interactive buttons found</p>
                     <p>• {data.summary.textFields} input fields detected</p>
                     <p>• {data.summary.clickHandlers} click event handlers</p>
+                  </div>
+                </Card>
+
+                <Card className="p-4 bg-purple-50 dark:bg-purple-950">
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Lock className="h-4 w-4" />
+                    Cryptography & Security
+                  </h4>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>• {data.cryptoUsage.hardcodedKeys} potential hardcoded secrets</p>
+                    <p>• {data.cryptoUsage.weakAlgorithms} weak crypto algorithms</p>
+                    <p>• {data.cryptoUsage.sslIssues} insecure HTTP connections</p>
+                    <p>• {data.securityFindings.length} total security findings</p>
+                  </div>
+                </Card>
+
+                <Card className="p-4 bg-amber-50 dark:bg-amber-950">
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Key className="h-4 w-4" />
+                    App Configuration
+                  </h4>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>• {data.permissions.length} permissions requested</p>
+                    <p>• {data.thirdPartyLibraries.length} third-party libraries</p>
                   </div>
                 </Card>
               </div>
