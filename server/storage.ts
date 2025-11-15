@@ -1,10 +1,8 @@
+
 import { 
   type ApkFile, 
-  type InsertApkFile,
-  apkFiles
+  type InsertApkFile
 } from "@shared/schema";
-import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
   // APK File operations
@@ -14,38 +12,33 @@ export interface IStorage {
   deleteApkFile(id: string): Promise<boolean>;
 }
 
-export class DatabaseStorage implements IStorage {
+export class LocalStorage implements IStorage {
+  private apkFiles: Map<string, ApkFile> = new Map();
+
   // APK File operations
   async createApkFile(insertApkFile: InsertApkFile): Promise<ApkFile> {
-    const [apkFile] = await db
-      .insert(apkFiles)
-      .values(insertApkFile)
-      .returning();
+    const apkFile: ApkFile = {
+      ...insertApkFile,
+      id: insertApkFile.id || crypto.randomUUID(),
+      uploadedAt: insertApkFile.uploadedAt || new Date()
+    };
+    this.apkFiles.set(apkFile.id, apkFile);
     return apkFile;
   }
 
   async getApkFile(id: string): Promise<ApkFile | undefined> {
-    const [apkFile] = await db
-      .select()
-      .from(apkFiles)
-      .where(eq(apkFiles.id, id));
-    return apkFile || undefined;
+    return this.apkFiles.get(id);
   }
 
   async getAllApkFiles(): Promise<ApkFile[]> {
-    return await db
-      .select()
-      .from(apkFiles)
-      .orderBy(desc(apkFiles.uploadedAt));
+    const files = Array.from(this.apkFiles.values());
+    // Sort by uploadedAt descending
+    return files.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
   }
 
   async deleteApkFile(id: string): Promise<boolean> {
-    const result = await db
-      .delete(apkFiles)
-      .where(eq(apkFiles.id, id))
-      .returning();
-    return result.length > 0;
+    return this.apkFiles.delete(id);
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new LocalStorage();
