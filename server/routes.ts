@@ -80,23 +80,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         apkUrl = new URL(url);
       } catch {
-        return res.status(400).json({ error: "Invalid URL" });
+        return res.status(400).json({ error: "Invalid URL format" });
       }
 
+      console.log(`Downloading APK from: ${url}`);
+
       // Download the APK
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; APKDownloader/1.0)'
+        }
+      });
       
       if (!response.ok) {
-        return res.status(400).json({ error: "Failed to download APK from URL" });
+        console.error(`Download failed with status: ${response.status}`);
+        return res.status(400).json({ error: `Failed to download APK: ${response.statusText}` });
       }
 
       const contentType = response.headers.get("content-type");
-      if (contentType && !contentType.includes("application/vnd.android.package-archive") && !url.endsWith(".apk")) {
-        return res.status(400).json({ error: "URL does not point to an APK file" });
+      console.log(`Content-Type: ${contentType}`);
+      
+      // More lenient content-type check
+      if (contentType && 
+          !contentType.includes("application/vnd.android.package-archive") && 
+          !contentType.includes("application/octet-stream") &&
+          !url.endsWith(".apk")) {
+        return res.status(400).json({ error: "URL does not appear to point to an APK file" });
       }
 
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
+
+      if (buffer.length === 0) {
+        return res.status(400).json({ error: "Downloaded file is empty" });
+      }
+
+      console.log(`Downloaded ${buffer.length} bytes`);
 
       // Extract filename from URL or use default
       const urlPath = apkUrl.pathname;
@@ -109,6 +128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filePath = path.join(uploadDir, filename);
 
       await fs.writeFile(filePath, buffer);
+      console.log(`Saved to: ${filePath}`);
 
       const apkData = {
         filename,
@@ -120,10 +140,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertApkFileSchema.parse(apkData);
       const apkFile = await storage.createApkFile(validatedData);
 
+      console.log(`APK file created with ID: ${apkFile.id}`);
       res.status(201).json(apkFile);
     } catch (error) {
       console.error("Error downloading APK from URL:", error);
-      res.status(500).json({ error: "Failed to download APK from URL" });
+      const errorMessage = error instanceof Error ? error.message : "Failed to download APK from URL";
+      res.status(500).json({ error: errorMessage });
     }
   });
 
